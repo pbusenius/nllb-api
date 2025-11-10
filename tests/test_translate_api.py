@@ -21,24 +21,24 @@ from server.typedefs.language import Language
 
 
 async def translate_post(client: AsyncTestClient[Litestar], text: str, source: str, target: str) -> Response:
-    return await client.post("/v4/translator", json={"text": text, "source": source, "target": target})
+    return await client.post("/translator", json={"text": text, "source": source, "target": target})
 
 
 async def translate_get(client: AsyncTestClient[Litestar], text: str, source: str, target: str) -> Response:
-    return await client.get("/v4/translator", params={"text": text, "source": source, "target": target})
+    return await client.get("/translator", params={"text": text, "source": source, "target": target})
 
 
 async def translate_stream(client: AsyncTestClient[Litestar], text: str, source: str, target: str) -> Response:
-    return await client.get("/v4/translator/stream", params={"text": text, "source": source, "target": target})
+    return await client.get("/translator/stream", params={"text": text, "source": source, "target": target})
 
 
 async def count_tokens(client: AsyncTestClient[Litestar], text: str) -> Response:
-    return await client.get("/v4/translator/tokens", params={"text": text})
+    return await client.get("/translator/tokens", params={"text": text})
 
 
 async def load_model(client: AsyncTestClient[Litestar], *, auth_token: str, keep_cache: bool) -> Response:
     return await client.put(
-        "/v4/translator",
+        "/translator",
         params={"keep_cache": keep_cache},
         headers={"Authorization": auth_token},
     )
@@ -46,7 +46,7 @@ async def load_model(client: AsyncTestClient[Litestar], *, auth_token: str, keep
 
 async def unload_model(client: AsyncTestClient[Litestar], *, auth_token: str, to_cpu: bool) -> Response:
     return await client.delete(
-        "/v4/translator",
+        "/translator",
         params={"to_cpu": to_cpu},
         headers={"Authorization": auth_token},
     )

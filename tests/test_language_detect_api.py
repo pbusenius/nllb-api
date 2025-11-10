@@ -31,7 +31,7 @@ async def detect_language(
         "accurate-model-confidence-threshold": accurate_model_confidence_threshold,
     }
 
-    return await client.get("/v4/language", params=parameters)
+    return await client.get("/language", params=parameters)
 
 
 @mark.anyio

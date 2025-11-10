@@ -1,5 +1,7 @@
 ARG PYTHON_VERSION_TAG=3.13
 
+FROM swaggerapi/swagger-ui:v5.9.1 AS swagger-ui
+
 FROM python:$PYTHON_VERSION_TAG-slim AS model-builder
 
 RUN pip install huggingface-hub
@@ -55,7 +57,11 @@ USER user
 
 WORKDIR $HOME
 
+RUN mkdir -p swagger-ui-assets
+
 COPY --chown=user --from=model-builder  /root/.cache/huggingface $HOME/.cache/huggingface
 COPY --chown=user --from=python-builder $HOME/.venv .venv
+COPY --chown=user --from=swagger-ui /usr/share/nginx/html/swagger-ui.css $HOME/swagger-ui-assets/swagger-ui.css
+COPY --chown=user --from=swagger-ui /usr/share/nginx/html/swagger-ui-bundle.js $HOME/swagger-ui-assets/swagger-ui-bundle.js
 
 CMD ["nllb-api"]

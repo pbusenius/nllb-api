@@ -76,7 +76,7 @@ impl TranslatorClient {
     }
 
     pub async fn load_model(&self, keep_cache: bool) -> Result<bool, Error> {
-        let url = format!("{}/v4/translator", self.base_url);
+        let url = format!("{}/translator", self.base_url);
         let request = LoadQuery { keep_cache };
         let success = self
             .client
@@ -91,7 +91,7 @@ impl TranslatorClient {
     }
 
     pub async fn unload_model(&self, to_cpu: bool) -> Result<bool, Error> {
-        let url = format!("{}/v4/translator", self.base_url);
+        let url = format!("{}/translator", self.base_url);
         let request = UnloadQuery { to_cpu };
         let success = self
             .client
@@ -106,7 +106,7 @@ impl TranslatorClient {
     }
 
     pub async fn detect_language(&self, text: &str) -> Result<LanguageResponse, Error> {
-        let url = format!("{}/v4/language", self.base_url);
+        let url = format!("{}/language", self.base_url);
         let query = LanguageQuery { text };
         let response = self
             .client
@@ -121,7 +121,7 @@ impl TranslatorClient {
     }
 
     pub async fn translate(&self, text: &str, source: &str, target: &str) -> Result<String, Error> {
-        let url = format!("{}/v4/translator", self.base_url);
+        let url = format!("{}/translator", self.base_url);
         let request = TranslateQuery {
             text,
             source,
@@ -142,7 +142,7 @@ impl TranslatorClient {
     }
 
     pub async fn count_tokens(&self, text: &str) -> Result<u32, Error> {
-        let url = format!("{}/v4/translator/tokens", self.base_url);
+        let url = format!("{}/translator/tokens", self.base_url);
         let request = TokenQuery { text };
         let response = self
             .client

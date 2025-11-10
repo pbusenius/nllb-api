@@ -2,23 +2,27 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from functools import partial
 from logging import Logger, getLogger
+from os import environ
+from pathlib import Path
 from random import choice
 from string import ascii_letters, digits
 from typing import Literal
 
 from litestar import Litestar, Response, Router
 from litestar.config.cors import CORSConfig
+from litestar.static_files import create_static_files_router
 from litestar.contrib.opentelemetry import OpenTelemetryConfig, OpenTelemetryPlugin
 from litestar.openapi import OpenAPIConfig
-from litestar.openapi.spec import Server
+from litestar.openapi.spec import Server, Tag
 from litestar.plugins import PluginProtocol
 from litestar.status_codes import HTTP_500_INTERNAL_SERVER_ERROR
 from litestar.types import Method
 
-from server.api import health, v4
+from server.api import monitoring, v4
 from server.config import Config
 from server.lifespans import load_language_detector, load_translator_model
 from server.plugins import ConsulPlugin
+from server.plugins.swagger_ui import CustomSwaggerRenderPlugin
 from server.telemetry import get_log_handler, get_meter_provider, get_tracer_provider
 
 
@@ -87,17 +91,24 @@ def app(config: Config | None = None) -> Litestar:
         "hosted on Hugging Face Spaces."
     )
 
+    # Create custom Swagger UI render plugin with bundled assets
+    swagger_render_plugin = CustomSwaggerRenderPlugin(server_root_path=config.server_root_path)
+
     openapi_config = OpenAPIConfig(
         title=app_name,
         version="4.2.0",
-        description=description,
         use_handler_docstrings=True,
         servers=[Server(url=config.server_root_path)],
+        render_plugins=[swagger_render_plugin],
+        tags=[
+            Tag(name="Monitoring"),
+            Tag(name="API"),
+        ],
     )
 
-    v4_router = Router(
-        "/v4",
-        tags=["v4"],
+    api_router = Router(
+        path="/",
+        tags=["API"],
         route_handlers=[v4.language, v4.TranslatorController],
     )
 
@@ -157,11 +168,23 @@ def app(config: Config | None = None) -> Litestar:
 
         plugins.append(consul_plugin)
 
+    # Configure static files for swagger-ui assets if they exist
+    route_handlers: list = [api_router, monitoring]
+    home_dir = Path(environ.get("HOME", str(Path.home())))
+    swagger_ui_assets_path = home_dir / "swagger-ui-assets"
+    if swagger_ui_assets_path.exists():
+        static_files_router = create_static_files_router(
+            path=f"{config.server_root_path}/swagger-ui-assets",
+            directories=[str(swagger_ui_assets_path)],
+            html_mode=False,
+        )
+        route_handlers.append(static_files_router)
+
     return Litestar(
         openapi_config=openapi_config,
         cors_config=cors_config,
         exception_handlers={HTTP_500_INTERNAL_SERVER_ERROR: partial(exception_handler, logger)},
-        route_handlers=[v4_router, health],
+        route_handlers=route_handlers,
         plugins=plugins,
         lifespan=lifespans,
         opt={"auth_token": config.auth_token},

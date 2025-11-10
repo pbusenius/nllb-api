@@ -237,19 +237,19 @@ Zulu                               | zul_Latn
 ### cURL
 
 ```bash
-curl 'https://pbusenius-nllb-api.hf.space/api/v4/translator?text=Hello&source=eng_Latn&target=spa_Latn'
+curl 'https://pbusenius-nllb-api.hf.space/api/translator?text=Hello&source=eng_Latn&target=spa_Latn'
 ```
 
 To stream translations as Server-Sent Events, you may query the `/translator/stream` endpoint instead.
 
 ```bash
-curl -N 'https://pbusenius-nllb-api.hf.space/api/v4/translator/stream?text=Hello&source=eng_Latn&target=spa_Latn'
+curl -N 'https://pbusenius-nllb-api.hf.space/api/translator/stream?text=Hello&source=eng_Latn&target=spa_Latn'
 ```
 
 You can also determine the source language by querying the following API.
 
 ```bash
-curl 'https://pbusenius-nllb-api.hf.space/api/v4/language?text=Hello'
+curl 'https://pbusenius-nllb-api.hf.space/api/language?text=Hello'
 ```
 
 ### Python
@@ -382,8 +382,28 @@ First, install the required dependencies for your editor with the following.
 uv sync
 ```
 
-Now, you can access the Swagger UI at [localhost:7860/api/schema/swagger](http://localhost:7860/api/schema/swagger) after spinning the server up locally with the following.
+### Running the Server
 
+You can run the server locally in several ways:
+
+**Direct execution (requires models to be downloaded):**
+```bash
+uv run run
+```
+
+**Stub mode (no model downloads, useful for testing):**
+```bash
+uv run nllb-api-stub
+```
+
+**Docker with CPU inference:**
 ```bash
 uv run docker-cpu
 ```
+
+**Docker with GPU inference:**
+```bash
+uv run docker-gpu
+```
+
+After starting the server, you can access the Swagger UI at [localhost:7860/api/schema/swagger](http://localhost:7860/api/schema/swagger).

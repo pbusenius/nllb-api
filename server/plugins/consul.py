@@ -5,8 +5,6 @@ from aiohttp import ClientSession
 from litestar.config.app import AppConfig
 from litestar.plugins import InitPlugin
 
-from server.api import health
-
 
 @asynccontextmanager
 async def consul_register(
@@ -60,7 +58,7 @@ async def consul_register(
 
     health_endpoint = (
         f"{consul_service_scheme}://{consul_service_address}:{consul_service_port}"
-        f"{server_root_path}{health.paths.pop()}"
+        f"{server_root_path}/health"
     )
 
     health_check = {
