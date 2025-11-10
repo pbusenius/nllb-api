@@ -3,12 +3,12 @@
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![python](https://img.shields.io/badge/python-3.8%20|%203.9%20|%203.10%20|%203.11%20|%203.12%20|%203.13%20|%203.14-blue)](https://www.python.org/)
 
-[![API](https://img.shields.io/endpoint?url=https%3A%2F%2Fwinstxnhdw-nllb-api.hf.space%2Fapi%2Fhealth&logo=huggingface&label=nllb-api&labelColor=%230B0F19&color=brightgreen)](https://huggingface.co/spaces/winstxnhdw/nllb-api)
-[![main.yml](https://github.com/winstxnhdw/nllb-api/actions/workflows/main.yml/badge.svg)](https://github.com/winstxnhdw/nllb-api/actions/workflows/main.yml)
-[![cuda.yml](https://github.com/winstxnhdw/nllb-api/actions/workflows/cuda.yml/badge.svg)](https://github.com/winstxnhdw/nllb-api/actions/workflows/cuda.yml)
-[![clippy.yml](https://github.com/winstxnhdw/nllb-api/actions/workflows/clippy.yml/badge.svg)](https://github.com/winstxnhdw/nllb-api/actions/workflows/clippy.yml)
-[![client.yml](https://github.com/winstxnhdw/nllb-api/actions/workflows/client.yml/badge.svg)](https://github.com/winstxnhdw/nllb-api/actions/workflows/client.yml)
-[![formatter.yml](https://github.com/winstxnhdw/nllb-api/actions/workflows/formatter.yml/badge.svg)](https://github.com/winstxnhdw/nllb-api/actions/workflows/formatter.yml)
+[![API](https://img.shields.io/endpoint?url=https%3A%2F%2Fpbusenius-nllb-api.hf.space%2Fapi%2Fhealth&logo=huggingface&label=nllb-api&labelColor=%230B0F19&color=brightgreen)](https://huggingface.co/spaces/pbusenius/nllb-api)
+[![main.yml](https://github.com/pbusenius/nllb-api/actions/workflows/main.yml/badge.svg)](https://github.com/pbusenius/nllb-api/actions/workflows/main.yml)
+[![cuda.yml](https://github.com/pbusenius/nllb-api/actions/workflows/cuda.yml/badge.svg)](https://github.com/pbusenius/nllb-api/actions/workflows/cuda.yml)
+[![clippy.yml](https://github.com/pbusenius/nllb-api/actions/workflows/clippy.yml/badge.svg)](https://github.com/pbusenius/nllb-api/actions/workflows/clippy.yml)
+[![client.yml](https://github.com/pbusenius/nllb-api/actions/workflows/client.yml/badge.svg)](https://github.com/pbusenius/nllb-api/actions/workflows/client.yml)
+[![formatter.yml](https://github.com/pbusenius/nllb-api/actions/workflows/formatter.yml/badge.svg)](https://github.com/pbusenius/nllb-api/actions/workflows/formatter.yml)
 
 A fast CPU-based API for Meta's [No Language Left Behind](https://huggingface.co/docs/transformers/model_doc/nllb) distilled 1.3B 8-bit quantised variant, hosted on Hugging Face Spaces. To achieve faster executions, we are using [CTranslate2](https://github.com/OpenNMT/CTranslate2) as our inference engine.
 
@@ -237,19 +237,19 @@ Zulu                               | zul_Latn
 ### cURL
 
 ```bash
-curl 'https://winstxnhdw-nllb-api.hf.space/api/v4/translator?text=Hello&source=eng_Latn&target=spa_Latn'
+curl 'https://pbusenius-nllb-api.hf.space/api/v4/translator?text=Hello&source=eng_Latn&target=spa_Latn'
 ```
 
 To stream translations as Server-Sent Events, you may query the `/translator/stream` endpoint instead.
 
 ```bash
-curl -N 'https://winstxnhdw-nllb-api.hf.space/api/v4/translator/stream?text=Hello&source=eng_Latn&target=spa_Latn'
+curl -N 'https://pbusenius-nllb-api.hf.space/api/v4/translator/stream?text=Hello&source=eng_Latn&target=spa_Latn'
 ```
 
 You can also determine the source language by querying the following API.
 
 ```bash
-curl 'https://winstxnhdw-nllb-api.hf.space/api/v4/language?text=Hello'
+curl 'https://pbusenius-nllb-api.hf.space/api/v4/language?text=Hello'
 ```
 
 ### Python
@@ -257,7 +257,7 @@ curl 'https://winstxnhdw-nllb-api.hf.space/api/v4/language?text=Hello'
 Install the `nllb` Rust client library.
 
 ```bash
-pip install "nllb @ git+https://git@github.com/winstxnhdw/nllb-api.git#subdirectory=client"
+pip install "nllb @ git+https://git@github.com/pbusenius/nllb-api.git#subdirectory=client"
 ```
 
 Then, you can use the `AsyncTranslatorClient` to interact with the API.
@@ -294,7 +294,7 @@ You can self-host the API and access the Swagger UI at [localhost:7860/api/schem
 docker run --rm \
   -e SERVER_PORT=7860 \
   -p 7860:7860 \
-  ghcr.io/winstxnhdw/nllb-api:main
+  pbusenius/nllb-api:main
 ```
 
 ### Cross-Origin Resource Sharing
@@ -318,7 +318,7 @@ docker run --rm \
   -e ACCESS_CONTROL_ALLOW_METHOD_HEAD=true \
   -e ACCESS_CONTROL_ALLOW_METHOD_TRACE=true \
   -p 7860:7860 \
-  ghcr.io/winstxnhdw/nllb-api:main
+  pbusenius/nllb-api:main
 ```
 
 ### Optimisation
@@ -335,7 +335,7 @@ docker run --rm \
   -e TRANSLATOR_THREADS=2 \
   -e WORKER_COUNT=1 \
   -p 7860:7860 \
-  ghcr.io/winstxnhdw/nllb-api:main
+  pbusenius/nllb-api:main
 ```
 
 ### CUDA Support
@@ -371,7 +371,7 @@ docker run --rm \
   -e OTEL_EXPORTER_OTLP_HEADERS="Authorization: Basic $OTEL_AUTH_TOKEN" \
   -e OTEL_METRIC_EXPORT_INTERVAL=10000 \
   -p 7860:7860 \
-  ghcr.io/winstxnhdw/nllb-api:main
+  pbusenius/nllb-api:main
 ```
 
 ## Development

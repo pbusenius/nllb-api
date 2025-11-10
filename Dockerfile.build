@@ -5,7 +5,7 @@ FROM python:$PYTHON_VERSION_TAG-slim AS model-builder
 RUN pip install huggingface-hub
 RUN python -c \
     "from huggingface_hub import snapshot_download, hf_hub_download; \
-    snapshot_download('winstxnhdw/nllb-200-distilled-1.3B-ct2-int8'); \
+    snapshot_download('pbusenius/nllb-200-distilled-1.3B-ct2-int8'); \
     hf_hub_download('facebook/fasttext-language-identification', 'model.bin')"
 
 
