@@ -65,7 +65,8 @@ RUN uv sync --python python${PYTHON_VERSION} --no-install-project --extra cuda &
     find .venv -type f -name "*.md" -delete && \
     find .venv -type f -name "*.rst" -delete && \
     find .venv -type d -name "docs" -exec rm -rf {} + 2>/dev/null || true && \
-    find .venv -type d -name "doc" -exec rm -rf {} + 2>/dev/null || true
+    find .venv -type d -name "doc" -exec rm -rf {} + 2>/dev/null || true && \
+    rm -rf language
 
 # Stage 3: Final runtime image
 FROM nvidia/cuda:${CUDA_VERSION}-${CUDA_VARIANT}
