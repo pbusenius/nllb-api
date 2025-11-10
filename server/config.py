@@ -131,7 +131,9 @@ class Config(BaseSettings):
     access_control_expose_headers: str = "*"
     access_control_max_age: int = 600
 
+    otel_enabled: bool = True
     otel_exporter_otlp_endpoint: str | None = None
+    otel_prometheus_metrics_path: str = "/metrics"
 
     consul_http_addr: str | None = None
     consul_auth_token: str | None = None

@@ -143,13 +143,23 @@ def app(config: Config | None = None) -> Litestar:
         ),
     )
 
-    if config.otel_exporter_otlp_endpoint:
-        handler = get_log_handler(otlp_service_name=app_name, otlp_service_instance_id=app_id)
-        logger.addHandler(handler)
-        getLogger("granian.access").addHandler(handler)
+    if config.otel_enabled:
+        # Set up logging handler if OTLP endpoint is configured
+        if config.otel_exporter_otlp_endpoint:
+            handler = get_log_handler(otlp_service_name=app_name, otlp_service_instance_id=app_id)
+            logger.addHandler(handler)
+            getLogger("granian.access").addHandler(handler)
+
+        # Set up OpenTelemetry plugin
         opentelemetry_config = OpenTelemetryConfig(
-            tracer_provider=get_tracer_provider(otlp_service_name=app_name, otlp_service_instance_id=app_id),
-            meter_provider=get_meter_provider(otlp_service_name=app_name, otlp_service_instance_id=app_id),
+            tracer_provider=get_tracer_provider(otlp_service_name=app_name, otlp_service_instance_id=app_id)
+            if config.otel_exporter_otlp_endpoint
+            else None,
+            meter_provider=get_meter_provider(
+                otlp_service_name=app_name,
+                otlp_service_instance_id=app_id,
+                use_prometheus=True,
+            ),
         )
 
         plugins.append(OpenTelemetryPlugin(opentelemetry_config))

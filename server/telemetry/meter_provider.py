@@ -1,13 +1,18 @@
 from collections.abc import Iterable
 from os import statvfs
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.instrumentation.system_metrics import SystemMetricsInstrumentor
 from opentelemetry.metrics import CallbackOptions, Meter, Observation, set_meter_provider
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import SERVICE_INSTANCE_ID, SERVICE_NAME, OTELResourceDetector, Resource
+
+if TYPE_CHECKING:
+    from typing import Optional
 
 
 def get_system_filesystem_usage(_: CallbackOptions) -> Iterable[Observation]:
@@ -48,11 +53,17 @@ def get_system_filesystem_usage(_: CallbackOptions) -> Iterable[Observation]:
     yield Observation(usage.f_bsize * (usage.f_blocks - usage.f_bfree - usage.f_bavail), labels_reserved)
 
 
-def get_meter_provider(*, otlp_service_name: str, otlp_service_instance_id: str) -> MeterProvider:
+# Global reference to the Prometheus metric reader
+_prometheus_metric_reader: "Optional[PrometheusMetricReader]" = None
+
+
+def get_meter_provider(
+    *, otlp_service_name: str, otlp_service_instance_id: str, use_prometheus: bool = True
+) -> MeterProvider:
     """
     Summary
     -------
-    creates and configures a MeterProvider for OpenTelemetry metrics with OTLP exporter
+    creates and configures a MeterProvider for OpenTelemetry metrics with Prometheus and/or OTLP exporter
 
     Parameters
     ----------
@@ -62,11 +73,16 @@ def get_meter_provider(*, otlp_service_name: str, otlp_service_instance_id: str)
     otlp_service_instance_id (str)
         the service instance ID to be used in the OpenTelemetry resource
 
+    use_prometheus (bool)
+        whether to use Prometheus exporter (default: True)
+
     Returns
     -------
     meter_provider (MeterProvider)
         the configured MeterProvider instance
     """
+    global _prometheus_metric_reader
+
     system_metrics_config = {
         "process.cpu.time": ["user", "system"],
         "process.cpu.utilization": None,
@@ -83,7 +99,13 @@ def get_meter_provider(*, otlp_service_name: str, otlp_service_instance_id: str)
 
     resource = Resource({SERVICE_NAME: otlp_service_name, SERVICE_INSTANCE_ID: otlp_service_instance_id})
     merged_resource = resource.merge(OTELResourceDetector().detect())
-    meter_provider = MeterProvider([PeriodicExportingMetricReader(OTLPMetricExporter())], merged_resource)
+
+    metric_readers = []
+    if use_prometheus:
+        _prometheus_metric_reader = PrometheusMetricReader()
+        metric_readers.append(_prometheus_metric_reader)
+
+    meter_provider = MeterProvider(metric_readers, merged_resource)
     system_metrics_instrumentor = SystemMetricsInstrumentor(config=system_metrics_config)
     system_metrics_instrumentor.instrument(meter_provider=meter_provider)
 
@@ -98,3 +120,17 @@ def get_meter_provider(*, otlp_service_name: str, otlp_service_instance_id: str)
     set_meter_provider(meter_provider)
 
     return meter_provider
+
+
+def get_prometheus_metric_reader() -> "Optional[PrometheusMetricReader]":
+    """
+    Summary
+    -------
+    get the Prometheus metric reader for exposing metrics endpoint
+
+    Returns
+    -------
+    prometheus_metric_reader (Optional[PrometheusMetricReader])
+        the PrometheusMetricReader instance if available, None otherwise
+    """
+    return _prometheus_metric_reader

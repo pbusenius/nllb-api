@@ -16,6 +16,8 @@ dependencies = [
     "language",
     "opentelemetry-instrumentation-asgi>=0.58b0",
     "opentelemetry-exporter-otlp-proto-http>=1.38.0",
+    "opentelemetry-exporter-prometheus>=0.55b1",
+    "prometheus-client>=0.20.0",
     "fast-query-parsers>=1.0.3",
     "opentelemetry-instrumentation-system-metrics>=0.58b0",
     "pytest-env>=1.2.0",
