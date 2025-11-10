@@ -6,3 +6,4 @@ cache/
 .hypothesis/
 *.egg-info/
 **/target
+models/

@@ -343,7 +343,7 @@ docker run --rm \
 You can accelerate your inference with CUDA by building with the `USE_CUDA` build argument.
 
 ```bash
-docker build --build-arg USE_CUDA=1 -f Dockerfile.build -t nllb-api .
+docker build -f Dockerfile.cuda -t nllb-api .
 ```
 
 After building the image, you can run the image with the following.

@@ -78,7 +78,7 @@ def cpu() -> None:
     build and run the server with CPU inference
     """
     oci = get_oci()
-    docker_build = [oci, "build", "-f", "Dockerfile.build", "-t", "nllb-api", "."]
+    docker_build = [oci, "build", "-f", "Dockerfile", "-t", "nllb-api", "."]
 
     port = get_unused_port()
     docker_run = [
@@ -106,7 +106,7 @@ def gpu() -> None:
     build and run the server with GPU inference
     """
     oci = get_oci()
-    docker_build = [oci, "build", "--build-arg", "USE_CUDA=1", "-f", "Dockerfile.build", "-t", "nllb-api", "."]
+    docker_build = [oci, "build", "-f", "Dockerfile.cuda", "-t", "nllb-api", "."]
 
     port = get_unused_port()
     docker_run = [

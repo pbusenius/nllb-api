@@ -108,7 +108,7 @@ class Config(BaseSettings):
     worker_count: int = 1
     auth_token: str = str(uuid4())
 
-    translator_repository: str = "pbusenius/nllb-200-distilled-1.3B-ct2-int8"
+    translator_repository: str = "winstxnhdw/nllb-200-distilled-1.3B-ct2-int8"
     translator_threads: int = 1
     stub_translator: bool = True
     testing: bool = False

@@ -1,13 +1,91 @@
-FROM pbusenius/nllb-api:main
+ARG PYTHON_VERSION=3.13
 
-ENV SERVER_PORT=7860
-ENV TRANSLATOR_THREADS=4
+# Stage 1: Extract Swagger UI assets
+FROM swaggerapi/swagger-ui:v5.9.1 AS swagger-ui
 
-ENV OMP_NUM_THREADS=1
-ENV CT2_USE_EXPERIMENTAL_PACKED_GEMM=1
-ENV CT2_FORCE_CPU_ISA=AVX512
+# Stage 2: Download models (optional - skip if models don't exist)
+FROM python:${PYTHON_VERSION}-slim AS model-builder
+ARG DOWNLOAD_MODELS=false
+RUN if [ "$DOWNLOAD_MODELS" = "true" ]; then \
+        pip install --no-cache-dir huggingface-hub && \
+        python -c "from huggingface_hub import snapshot_download, hf_hub_download; \
+        import os, sys; \
+        try: \
+            snapshot_download('winstxnhdw/nllb-200-distilled-1.3B-ct2-int8'); \
+            hf_hub_download('facebook/fasttext-language-identification', 'model.bin'); \
+        except Exception as e: \
+            print(f'Warning: Model download failed: {e}', file=sys.stderr); \
+            sys.exit(0)"; \
+    else \
+        echo "Skipping model download (models will be downloaded at runtime)"; \
+        mkdir -p /root/.cache/huggingface; \
+    fi
 
-ENV OTEL_SEMCONV_STABILITY_OPT_IN=http
-ENV CONSUL_SERVICE_ADDRESS=pbusenius-nllb-api.hf.space
+# Stage 3: Build Python dependencies
+FROM python:${PYTHON_VERSION}-slim AS python-builder
+ARG USE_CUDA=0
 
-EXPOSE $SERVER_PORT
+WORKDIR /build
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+COPY language language/
+
+# Install dependencies
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_NO_CACHE=1 \
+    UV_NO_DEV=1 \
+    UV_LOCKED=1 \
+    UV_NO_EDITABLE=1 \
+    PYTHONOPTIMIZE=2 \
+    RUSTFLAGS="-C target-cpu=native"
+
+RUN uv sync --no-install-project ${USE_CUDA:+--extra cuda} && \
+    uv sync ${USE_CUDA:+--extra cuda} && \
+    find .venv -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
+    find .venv -type f -name "*.pyc" -delete && \
+    find .venv -type f -name "*.pyo" -delete
+
+# Stage 4: Final runtime image
+FROM python:${PYTHON_VERSION}-slim
+
+ARG PYTHON_VERSION
+ARG USE_CUDA=False
+
+ENV HOME=/home/user \
+    PATH=/home/user/.venv/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    TRANSFORMERS_NO_ADVISORY_WARNINGS=1 \
+    USE_CUDA=$USE_CUDA
+
+# Create user
+RUN useradd -m -u 1000 user && \
+    mkdir -p $HOME/swagger-ui-assets && \
+    chown -R user:user $HOME
+
+USER user
+WORKDIR $HOME
+
+# Create cache directory for models (will be populated at runtime if not in image)
+RUN mkdir -p /home/user/.cache/huggingface
+
+# Copy models (if they were downloaded during build)
+COPY --chown=user:user --from=model-builder /root/.cache/huggingface /home/user/.cache/huggingface
+
+# Copy Python environment
+COPY --chown=user:user --from=python-builder /build/.venv /home/user/.venv
+
+# Copy Swagger UI assets
+COPY --chown=user:user --from=swagger-ui /usr/share/nginx/html/swagger-ui.css $HOME/swagger-ui-assets/swagger-ui.css
+COPY --chown=user:user --from=swagger-ui /usr/share/nginx/html/swagger-ui-bundle.js $HOME/swagger-ui-assets/swagger-ui-bundle.js
+
+# Copy application code (only what's needed)
+COPY --chown=user:user server/ server/
+COPY --chown=user:user pyproject.toml ./
+
+CMD ["nllb-api"]
