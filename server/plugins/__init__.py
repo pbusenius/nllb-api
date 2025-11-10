@@ -1,1 +1,1 @@
-from server.plugins.consul import ConsulPlugin as ConsulPlugin
+from server.plugins.consul import consul_register as consul_register

@@ -1,57 +1,47 @@
-from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager
-from functools import partial
-from logging import Logger, getLogger
+from contextlib import asynccontextmanager
+from logging import getLogger
 from os import environ
 from pathlib import Path
 from random import choice
 from string import ascii_letters, digits
-from typing import Literal
 
-from litestar import Litestar, Response, Router
-from litestar.config.cors import CORSConfig
-from litestar.static_files import create_static_files_router
-from litestar.contrib.opentelemetry import OpenTelemetryConfig, OpenTelemetryPlugin
-from litestar.openapi import OpenAPIConfig
-from litestar.openapi.spec import Server, Tag
-from litestar.plugins import PluginProtocol
-from litestar.status_codes import HTTP_500_INTERNAL_SERVER_ERROR
-from litestar.types import Method
+from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-from server.api import monitoring, v4
+from server.api import api_router, monitoring
 from server.config import Config
 from server.lifespans import load_language_detector, load_translator_model
-from server.plugins import ConsulPlugin
-from server.plugins.swagger_ui import CustomSwaggerRenderPlugin
-from server.telemetry import get_log_handler, get_meter_provider, get_tracer_provider
+from server.plugins.consul import consul_register
+from server.plugins.swagger_ui import setup_swagger_ui
+from server.telemetry import get_log_handler, setup_telemetry
 
 
-def exception_handler(logger: Logger, _, exception: Exception) -> Response[dict[str, str]]:
+def exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
     Summary
     -------
-    the Litestar exception handler
+    the FastAPI exception handler
 
     Parameters
     ----------
-    logger (Logger)
-        the logger instance
-
     request (Request)
         the request
 
-    exception (Exception)
+    exc (Exception)
         the exception
 
     Returns
     -------
-    response (Response[dict[str, str]]) : the response
+    response (JSONResponse)
+        the error response
     """
-    logger.error(exception, exc_info=exception)
-
-    return Response(
+    logger = getLogger("nllb-api")
+    logger.error(exc, exc_info=exc)
+    return JSONResponse(
         content={"detail": "Internal Server Error"},
-        status_code=HTTP_500_INTERNAL_SERVER_ERROR,
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
     )
 
 
@@ -74,45 +64,94 @@ def extract_cors_values(string: str) -> list[str]:
     return [stripped_chunk for chunk in string.split(",") if (stripped_chunk := chunk.strip())]
 
 
-def app(config: Config | None = None) -> Litestar:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """
     Summary
     -------
-    the Litestar application
+    lifespan context manager for FastAPI
+
+    Parameters
+    ----------
+    app (FastAPI)
+        the FastAPI application instance
+    """
+    config: Config = app.state.config
+    app_id: str = app.state.app_id
+
+    # Load models
+    async with load_language_detector(
+        config.language_detector_repository,
+        stub=config.stub_language_detector,
+    )(app):
+        async with load_translator_model(
+            config.translator_repository,
+            translator_threads=config.translator_threads,
+            stub=config.stub_translator,
+            testing=config.testing,
+            use_cuda=config.use_cuda,
+        )(app):
+            # Register with Consul if configured
+            if config.consul_http_addr and config.consul_service_address:
+                async with consul_register(
+                    app,
+                    app_name=config.app_name,
+                    app_id=app_id,
+                    consul_http_addr=config.consul_http_addr,
+                    consul_service_address=config.consul_service_address,
+                    consul_service_port=config.consul_service_port,
+                    consul_service_scheme=config.consul_service_scheme,
+                    server_root_path=config.server_root_path,
+                    consul_auth_token=config.consul_auth_token,
+                ):
+                    yield
+            else:
+                yield
+
+
+def create_app(config: Config | None = None) -> FastAPI:
+    """
+    Summary
+    -------
+    create the FastAPI application
     """
     config = config or Config()
     ascii_letters_with_digits = f"{ascii_letters}{digits}"
     app_name = config.app_name
     app_id = f"{app_name}-{''.join(choice(ascii_letters_with_digits) for _ in range(4))}"  # noqa: S311
     logger = getLogger(app_name)
-    plugins: list[PluginProtocol] = []
-    description = (
-        "A performant high-throughput CPU-based API for Meta's No Language Left Behind (NLLB) using CTranslate2, "
-        "hosted on Hugging Face Spaces."
-    )
 
-    # Create custom Swagger UI render plugin with bundled assets
-    swagger_render_plugin = CustomSwaggerRenderPlugin(server_root_path=config.server_root_path)
-
-    openapi_config = OpenAPIConfig(
+    # Create FastAPI app
+    fastapi_app = FastAPI(
         title=app_name,
         version="4.2.0",
-        use_handler_docstrings=True,
-        servers=[Server(url=config.server_root_path)],
-        render_plugins=[swagger_render_plugin],
-        tags=[
-            Tag(name="Monitoring"),
-            Tag(name="API"),
+        docs_url=f"{config.server_root_path}/schema/swagger",
+        redoc_url=None,
+        openapi_url=f"{config.server_root_path}/schema/openapi.json",
+        openapi_tags=[
+            {"name": "Monitoring"},
+            {"name": "API"},
         ],
+        lifespan=lifespan,
     )
 
-    api_router = Router(
-        path="/",
-        tags=["API"],
-        route_handlers=[v4.language, v4.TranslatorController],
-    )
+    # Store config and app_id in app state
+    fastapi_app.state.config = config
+    fastapi_app.state.app_id = app_id
 
-    allow_methods_dict: dict[Method | Literal["*"], bool] = {
+    # Set up OpenTelemetry
+    if config.otel_enabled:
+        # Set up logging handler if OTLP endpoint is configured
+        if config.otel_exporter_otlp_endpoint:
+            handler = get_log_handler(otlp_service_name=app_name, otlp_service_instance_id=app_id)
+            logger.addHandler(handler)
+            getLogger("uvicorn.access").addHandler(handler)
+
+        # Set up OpenTelemetry instrumentation
+        setup_telemetry(fastapi_app, service_name=app_name)
+
+    # Configure CORS
+    allow_methods_dict: dict[str, bool] = {
         "GET": config.access_control_allow_method_get,
         "POST": config.access_control_allow_method_post,
         "PUT": config.access_control_allow_method_put,
@@ -123,7 +162,8 @@ def app(config: Config | None = None) -> Litestar:
         "TRACE": config.access_control_allow_method_trace,
     }
 
-    cors_config = CORSConfig(
+    fastapi_app.add_middleware(
+        CORSMiddleware,
         allow_origins=extract_cors_values(config.access_control_allow_origin),
         allow_methods=[method for method, is_allowed in allow_methods_dict.items() if is_allowed],
         allow_credentials=config.access_control_allow_credentials,
@@ -132,70 +172,26 @@ def app(config: Config | None = None) -> Litestar:
         max_age=config.access_control_max_age,
     )
 
-    lifespans: tuple[Callable[[Litestar], AbstractAsyncContextManager[None]], ...] = (
-        load_language_detector(config.language_detector_repository, stub=config.stub_language_detector),
-        load_translator_model(
-            config.translator_repository,
-            translator_threads=config.translator_threads,
-            stub=config.stub_translator,
-            testing=config.testing,
-            use_cuda=config.use_cuda,
-        ),
-    )
+    # Add exception handler
+    fastapi_app.add_exception_handler(Exception, exception_handler)
 
-    if config.otel_enabled:
-        # Set up logging handler if OTLP endpoint is configured
-        if config.otel_exporter_otlp_endpoint:
-            handler = get_log_handler(otlp_service_name=app_name, otlp_service_instance_id=app_id)
-            logger.addHandler(handler)
-            getLogger("granian.access").addHandler(handler)
-
-        # Set up OpenTelemetry plugin
-        opentelemetry_config = OpenTelemetryConfig(
-            tracer_provider=get_tracer_provider(otlp_service_name=app_name, otlp_service_instance_id=app_id)
-            if config.otel_exporter_otlp_endpoint
-            else None,
-            meter_provider=get_meter_provider(
-                otlp_service_name=app_name,
-                otlp_service_instance_id=app_id,
-                use_prometheus=True,
-            ),
-        )
-
-        plugins.append(OpenTelemetryPlugin(opentelemetry_config))
-
-    if config.consul_http_addr and config.consul_service_address:
-        consul_plugin = ConsulPlugin(
-            app_name=app_name,
-            app_id=app_id,
-            consul_http_addr=config.consul_http_addr,
-            consul_service_address=config.consul_service_address,
-            consul_service_port=config.consul_service_port,
-            consul_service_scheme=config.consul_service_scheme,
-            server_root_path=config.server_root_path,
-            consul_auth_token=config.consul_auth_token,
-        )
-
-        plugins.append(consul_plugin)
+    # Include routers
+    fastapi_app.include_router(monitoring, prefix=config.server_root_path)
+    fastapi_app.include_router(api_router, prefix=config.server_root_path, tags=["API"])
 
     # Configure static files for swagger-ui assets if they exist
-    route_handlers: list = [api_router, monitoring]
     home_dir = Path(environ.get("HOME", str(Path.home())))
     swagger_ui_assets_path = home_dir / "swagger-ui-assets"
     if swagger_ui_assets_path.exists():
-        static_files_router = create_static_files_router(
-            path=f"{config.server_root_path}/swagger-ui-assets",
-            directories=[str(swagger_ui_assets_path)],
-            html_mode=False,
+        fastapi_app.mount(
+            f"{config.server_root_path}/swagger-ui-assets",
+            StaticFiles(directory=str(swagger_ui_assets_path)),
+            name="swagger-ui-assets",
         )
-        route_handlers.append(static_files_router)
+        setup_swagger_ui(fastapi_app, config.server_root_path)
 
-    return Litestar(
-        openapi_config=openapi_config,
-        cors_config=cors_config,
-        exception_handlers={HTTP_500_INTERNAL_SERVER_ERROR: partial(exception_handler, logger)},
-        route_handlers=route_handlers,
-        plugins=plugins,
-        lifespan=lifespans,
-        opt={"auth_token": config.auth_token},
-    )
+    return fastapi_app
+
+
+# Create app instance for uvicorn
+app = create_app()

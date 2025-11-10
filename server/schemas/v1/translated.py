@@ -1,9 +1,9 @@
 from typing import Annotated
 
-from msgspec import Meta, Struct
+from pydantic import BaseModel, Field
 
 
-class Translated(Struct, kw_only=True):
+class Translated(BaseModel):
     """
     Summary
     -------
@@ -17,7 +17,7 @@ class Translated(Struct, kw_only=True):
 
     result: Annotated[
         str,
-        Meta(
+        Field(
             description="translated text in the language specified within the `target` request field",
             examples=["¡Hola, mundo!"],
         ),

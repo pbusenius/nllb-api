@@ -1,9 +1,7 @@
-from msgspec import Struct, field
-
-from server.config import Config
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class Health(Struct, kw_only=True, gc=False):
+class Health(BaseModel):
     """
     Summary
     -------
@@ -21,6 +19,8 @@ class Health(Struct, kw_only=True, gc=False):
         the message to display on the right side of the badge, defaults to `online`
     """
 
-    schema_version: int = field(default=1, name="schemaVersion")
-    label: str = field(default=Config().app_name)
-    message: str = field(default="online")
+    model_config = ConfigDict(populate_by_name=True)
+
+    schema_version: int = Field(default=1, alias="schemaVersion")
+    label: str = Field(default="nllb-api")
+    message: str = Field(default="online")

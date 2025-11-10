@@ -1,14 +1,14 @@
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
-from litestar import Litestar
+from fastapi import FastAPI
 
 from server.features.translator import get_translator
 
 
 @asynccontextmanager
 async def translator_lifespan(
-    app: Litestar,
+    app: FastAPI,
     *,
     translator_repository: str,
     translator_threads: int,
@@ -23,7 +23,7 @@ async def translator_lifespan(
 
     Parameters
     ----------
-    app (Litestar)
+    app (FastAPI)
         the application instance
 
     translator_repository (str)
@@ -59,7 +59,7 @@ def load_translator_model(
     stub: bool,
     testing: bool,
     use_cuda: bool,
-) -> Callable[[Litestar], AbstractAsyncContextManager[None]]:
+) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
     """
     Summary
     -------
@@ -84,8 +84,8 @@ def load_translator_model(
 
     Returns
     -------
-    lifespan (Callable[[Litestar], AbstractAsyncContextManager[None]])
-        a Litestar-compatible lifespan context manager
+    lifespan (Callable[[FastAPI], AbstractAsyncContextManager[None]])
+        a FastAPI-compatible lifespan context manager
     """
     return lambda app: translator_lifespan(
         app,

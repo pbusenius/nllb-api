@@ -1,14 +1,14 @@
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
-from litestar import Litestar
+from fastapi import FastAPI
 
 from server.features.detector import get_language_detector
 
 
 @asynccontextmanager
 async def language_detector_lifespan(
-    app: Litestar,
+    app: FastAPI,
     *,
     language_detector_repository: str,
     stub: bool,
@@ -20,7 +20,7 @@ async def language_detector_lifespan(
 
     Parameters
     ----------
-    app (Litestar)
+    app (FastAPI)
         the application instance
 
     language_detector_repository (str)
@@ -45,7 +45,7 @@ def load_language_detector(
     language_detector_repository: str,
     *,
     stub: bool,
-) -> Callable[[Litestar], AbstractAsyncContextManager[None]]:
+) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
     """
     Summary
     -------
@@ -61,8 +61,8 @@ def load_language_detector(
 
     Returns
     -------
-    lifespan (Callable[[Litestar], AbstractAsyncContextManager[None]])
-        a Litestar-compatible lifespan context manager
+    lifespan (Callable[[FastAPI], AbstractAsyncContextManager[None]])
+        a FastAPI-compatible lifespan context manager
     """
     return lambda app: language_detector_lifespan(
         app,

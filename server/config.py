@@ -110,12 +110,12 @@ class Config(BaseSettings):
 
     translator_repository: str = "pbusenius/nllb-200-distilled-1.3B-ct2-int8"
     translator_threads: int = 1
-    stub_translator: bool = False
+    stub_translator: bool = True
     testing: bool = False
     use_cuda: bool = False
 
     language_detector_repository: str = "facebook/fasttext-language-identification"
-    stub_language_detector: bool = False
+    stub_language_detector: bool = True
 
     access_control_allow_origin: str = "*"
     access_control_allow_method_get: bool = True

@@ -1,9 +1,9 @@
 from typing import Annotated
 
-from msgspec import Meta, Struct
+from pydantic import BaseModel, Field
 
 
-class Tokens(Struct, kw_only=True):
+class Tokens(BaseModel):
     """
     Summary
     -------
@@ -17,5 +17,5 @@ class Tokens(Struct, kw_only=True):
 
     length: Annotated[
         int,
-        Meta(description="the number of tokens in the input text", examples=[512]),
+        Field(description="the number of tokens in the input text", examples=[512]),
     ]

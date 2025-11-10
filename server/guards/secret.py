@@ -1,11 +1,7 @@
-from typing import Any
-
-from litestar.connection import ASGIConnection
-from litestar.exceptions import NotAuthorizedException
-from litestar.handlers.base import BaseRouteHandler
+from fastapi import Header, HTTPException, Request, status
 
 
-def requires_secret(connection: ASGIConnection[Any, Any, Any, Any], route_handler: BaseRouteHandler) -> None:
+def requires_secret(request: Request, authorization: str = Header(default="")):
     """
     Summary
     -------
@@ -13,11 +9,12 @@ def requires_secret(connection: ASGIConnection[Any, Any, Any, Any], route_handle
 
     Parameters
     ----------
-    connection (ASGIConnection[Any, Any, Any, Any])
-        the ASGI connection
-
-    route_handler (BaseRouteHandler)
-        the route handler
+    request (Request)
+        the FastAPI request
+    authorization (str)
+        the Authorization header value
     """
-    if connection.headers.get("Authorization", "") != route_handler.opt.get("auth_token"):
-        raise NotAuthorizedException
+    config = request.app.state.config
+    if authorization != config.auth_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+

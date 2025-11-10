@@ -1,11 +1,12 @@
-from litestar import Router, Response, get
-from litestar.status_codes import HTTP_503_SERVICE_UNAVAILABLE
+from fastapi import APIRouter, Response, status
 
 from server.schemas import Health
-from server.telemetry import get_prometheus_metric_reader
+from server.telemetry import get_metrics_reader
+
+router = APIRouter()
 
 
-@get("/health", cache=True, sync_to_thread=False, tags=["Monitoring"])
+@router.get("/health", tags=["Monitoring"], response_model=Health)
 def health() -> Health:
     """
     Summary
@@ -15,8 +16,8 @@ def health() -> Health:
     return Health()
 
 
-@get("/metrics", tags=["Monitoring"], sync_to_thread=False)
-def metrics() -> Response[str]:
+@router.get("/metrics", tags=["Monitoring"])
+def metrics() -> Response:
     """
     Summary
     -------
@@ -24,14 +25,14 @@ def metrics() -> Response[str]:
 
     Returns
     -------
-    response (Response[str])
+    response (Response)
         Prometheus-formatted metrics that can be scraped by monitoring systems
     """
-    metrics_reader = get_prometheus_metric_reader()
+    metrics_reader = get_metrics_reader()
     if metrics_reader is None:
         return Response(
             content="OpenTelemetry metrics not enabled",
-            status_code=HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             media_type="text/plain",
         )
 
@@ -53,9 +54,3 @@ def metrics() -> Response[str]:
             registry = REGISTRY
 
     return Response(content=generate_latest(registry=registry), media_type=CONTENT_TYPE_LATEST)
-
-
-monitoring_router = Router(
-    path="/",
-    route_handlers=[health, metrics],
-)

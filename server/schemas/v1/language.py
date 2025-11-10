@@ -1,11 +1,11 @@
 from typing import Annotated
 
-from msgspec import Meta, Struct
+from pydantic import BaseModel, Field
 
 from server.typedefs import Confidence, Language
 
 
-class LanguageResult(Struct, kw_only=True):
+class LanguageResult(BaseModel):
     """
     Summary
     -------
@@ -20,5 +20,11 @@ class LanguageResult(Struct, kw_only=True):
         the confidence score of the detected language
     """
 
-    language: Annotated[Language, Meta(description="language code in the FLORES-200 format", examples=["eng_Latn"])]
-    confidence: Annotated[Confidence, Meta(description="confidence score of the detected language")]
+    language: Annotated[
+        Language,
+        Field(description="language code in the FLORES-200 format", examples=["eng_Latn"]),
+    ]
+    confidence: Annotated[
+        Confidence,
+        Field(description="confidence score of the detected language"),
+    ]
