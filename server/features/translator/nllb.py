@@ -147,6 +147,84 @@ class Translator(TranslatorProtocol):
 
         return (result.token_id for result in results if not result.is_last)
 
+    def translate_batch(
+        self,
+        texts: list[str],
+        source_languages: list[Language],
+        target_languages: list[Language],
+    ) -> list[str]:
+        """
+        Summary
+        -------
+        translate multiple inputs from source languages to target languages in batch
+
+        Parameters
+        ----------
+        texts (list[str])
+            list of input texts to translate
+
+        source_languages (list[Language])
+            list of source languages corresponding to each text
+
+        target_languages (list[Language])
+            list of target languages corresponding to each text
+
+        Returns
+        -------
+        translated_texts (list[str])
+            list of translated texts in the same order as input
+        """
+        if not texts:
+            return []
+
+        # Tokenize all texts in batch
+        tokenized_batch = self.tokeniser.encode_batch(texts)
+
+        # Prepare source sequences with language prefix
+        source_sequences = [
+            [source_lang, *tokenized.tokens] for source_lang, tokenized in zip(source_languages, tokenized_batch)
+        ]
+
+        # Prepare target prefixes (list of lists, one per input)
+        target_prefixes = [[target_lang] for target_lang in target_languages]
+
+        # Translate in batch using ctranslate2
+        # suppress_sequences accepts a single list of sequences to suppress for all items
+        # We suppress all target language prefixes to prevent them from appearing in output
+        all_target_prefixes = [[target_lang] for target_lang in set(target_languages)]
+        
+        translation_results = self.translator.translate_batch(
+            source_sequences,
+            target_prefix=target_prefixes,
+            max_decoding_length=4096,
+            sampling_temperature=0,
+            no_repeat_ngram_size=3,
+            suppress_sequences=all_target_prefixes,
+            return_scores=False,
+        )
+
+        # Extract hypotheses and decode in batch
+        # Note: ctranslate2 translate_batch returns token IDs (integers) in hypotheses,
+        # despite the type stub suggesting strings
+        hypotheses = [result.hypotheses[0] for result in translation_results]
+        
+        # Ensure hypotheses are token IDs (integers) for decode_batch
+        # If ctranslate2 returns strings, convert them to IDs first
+        token_id_sequences = []
+        for hyp in hypotheses:
+            if hyp and isinstance(hyp[0], str):
+                # If hypotheses are token strings, convert to IDs via encoding
+                # This shouldn't happen with ctranslate2, but handle it if needed
+                encoded = self.tokeniser.encode(" ".join(hyp))
+                token_id_sequences.append(encoded.ids)
+            else:
+                # Hypotheses are already token IDs (integers)
+                token_id_sequences.append(hyp)
+        
+        decoded_texts = self.tokeniser.decode_batch(token_id_sequences, skip_special_tokens=True)
+
+        return decoded_texts
+
     def translate(self, text: str, source_language: Language, target_language: Language) -> str:
         """
         Summary

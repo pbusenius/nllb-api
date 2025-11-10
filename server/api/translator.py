@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sse_starlette.sse import EventSourceResponse
 
 from server.guards import requires_secret
-from server.schemas.v1 import Tokens, Translated, Translation
+from server.schemas.v1 import Tokens, Translated, Translation, TranslationBatch, TranslatedBatch
 from server.typedefs import Language, get_app_state
 
 router = APIRouter()
@@ -87,6 +87,37 @@ def translator_get(
     the GET variant of the `/translator` route
     """
     return Translated(result=state.translator.translate(text, source, target))
+
+
+@router.post("/translator/batch", tags=["API"], response_model=TranslatedBatch, status_code=status.HTTP_200_OK)
+def translator_batch(
+    data: TranslationBatch,
+    state=Depends(get_app_state),
+) -> TranslatedBatch:
+    """
+    Summary
+    -------
+    translate multiple texts in batch for improved GPU utilization
+
+    Parameters
+    ----------
+    data (TranslationBatch)
+        batch translation request containing list of translation items
+
+    Returns
+    -------
+    TranslatedBatch
+        batch translation response containing list of translated texts in the same order as input
+    """
+    texts = [item.text for item in data.translations]
+    source_languages = [item.source for item in data.translations]
+    target_languages = [item.target for item in data.translations]
+
+    translated_texts = state.translator.translate_batch(texts, source_languages, target_languages)
+
+    return TranslatedBatch(
+        results=[{"result": text} for text in translated_texts],
+    )
 
 
 @router.post("/translator", tags=["API"], response_model=Translated, status_code=status.HTTP_200_OK, deprecated=True)

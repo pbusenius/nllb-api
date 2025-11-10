@@ -15,6 +15,9 @@ class TranslatorProtocol(Protocol):
     translate(text: str, source_language: Language, target_language: Language) -> str
         translate the input from the source language to the target language
 
+    translate_batch(texts: list[str], source_languages: list[Language], target_languages: list[Language]) -> list[str]
+        translate multiple inputs from source languages to target languages in batch
+
     translate_stream(text: str, source_language: Language, target_language: Language) -> Iterator[str]
         streams the translation input from the source language to the target language
 
@@ -83,6 +86,35 @@ class TranslatorProtocol(Protocol):
         -------
         token_count (int)
             the number of tokens that will be sent to the translator
+        """
+        ...
+
+    def translate_batch(
+        self,
+        texts: list[str],
+        source_languages: list[Language],
+        target_languages: list[Language],
+    ) -> list[str]:
+        """
+        Summary
+        -------
+        translate multiple inputs from source languages to target languages in batch
+
+        Parameters
+        ----------
+        texts (list[str])
+            list of input texts to translate
+
+        source_languages (list[Language])
+            list of source languages corresponding to each text
+
+        target_languages (list[Language])
+            list of target languages corresponding to each text
+
+        Returns
+        -------
+        translated_texts (list[str])
+            list of translated texts in the same order as input
         """
         ...
 

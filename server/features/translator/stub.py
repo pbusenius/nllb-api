@@ -92,6 +92,38 @@ class TranslatorStub(TranslatorProtocol):
         """
         return len(text.split())
 
+    def translate_batch(
+        self,
+        texts: list[str],
+        source_languages: list[Language],
+        target_languages: list[Language],
+    ) -> list[str]:
+        """
+        Summary
+        -------
+        translate multiple inputs from source languages to target languages in batch
+
+        Parameters
+        ----------
+        texts (list[str])
+            list of input texts to translate
+
+        source_languages (list[Language])
+            list of source languages corresponding to each text
+
+        target_languages (list[Language])
+            list of target languages corresponding to each text
+
+        Returns
+        -------
+        translated_texts (list[str])
+            list of translated texts in the same order as input
+        """
+        return [
+            f"{text} from {source_lang} to {target_lang}"
+            for text, source_lang, target_lang in zip(texts, source_languages, target_languages)
+        ]
+
     def translate(self, text: str, source_language: Language, target_language: Language) -> str:
         """
         Summary
