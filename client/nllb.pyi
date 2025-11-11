@@ -216,7 +216,7 @@ class LanguagePrediction:
 class TranslatorClient:
     def __init__(
         self,
-        base_url: str = "https://pbusenius-nllb-api.hf.space",
+        base_url: str = "http://localhost:49494/api",
         *,
         auth_token: str | None = None,
         http_proxy: str | None = None,
@@ -232,7 +232,7 @@ class TranslatorClient:
 class AsyncTranslatorClient:
     def __init__(
         self,
-        base_url: str = "https://pbusenius-nllb-api.hf.space",
+        base_url: str = "http://localhost:49494/api",
         *,
         auth_token: str | None = None,
         http_proxy: str | None = None,

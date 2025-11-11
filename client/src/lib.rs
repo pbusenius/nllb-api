@@ -34,7 +34,7 @@ struct PyTranslatorClient {
 #[pymethods]
 impl PyTranslatorClient {
     #[new]
-    #[pyo3(signature = (base_url = "https://pbusenius-nllb-api.hf.space", *, auth_token = None, http_proxy = None, https_proxy = None, no_proxy = None))]
+    #[pyo3(signature = (base_url = "http://localhost:49494/api", *, auth_token = None, http_proxy = None, https_proxy = None, no_proxy = None))]
     fn new(
         base_url: &str,
         auth_token: Option<&str>,
@@ -98,7 +98,7 @@ struct AsyncPyTranslatorClient {
 #[pymethods]
 impl AsyncPyTranslatorClient {
     #[new]
-    #[pyo3(signature = (base_url = "https://pbusenius-nllb-api.hf.space", *, auth_token = None, http_proxy = None, https_proxy = None, no_proxy = None))]
+    #[pyo3(signature = (base_url = "http://localhost:49494/api", *, auth_token = None, http_proxy = None, https_proxy = None, no_proxy = None))]
     fn new(
         base_url: &str,
         auth_token: Option<&str>,
