@@ -9,6 +9,7 @@ from opentelemetry.exporter.prometheus import PrometheusMetricReader
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 
+from server.logging_config import get_logger
 from server.telemetry.log_handler import get_log_handler as get_log_handler
 from server.telemetry.meter_provider import (
     get_meter_provider as get_meter_provider,
@@ -18,6 +19,8 @@ from server.telemetry.tracer_provider import get_tracer_provider as get_tracer_p
 
 # Global reference to the Prometheus metric reader
 _prometheus_metric_reader: Optional[PrometheusMetricReader] = None
+
+logger = get_logger(__name__)
 
 
 def setup_telemetry(app, service_name: Optional[str] = None):
@@ -61,7 +64,7 @@ def setup_telemetry(app, service_name: Optional[str] = None):
     # Instrument FastAPI
     FastAPIInstrumentor.instrument_app(app)
 
-    print(f"OpenTelemetry instrumentation enabled for service: {service_name}")
+    logger.info("OpenTelemetry instrumentation enabled", service_name=service_name, app_id=app_id)
 
 
 def get_metrics_reader() -> Optional[PrometheusMetricReader]:

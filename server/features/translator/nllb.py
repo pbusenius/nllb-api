@@ -7,8 +7,11 @@ from tokenizers import Tokenizer
 
 from server.features.translator.protocol import TranslatorProtocol
 from server.features.translator.stub import TranslatorStub
+from server.logging_config import get_logger
 from server.typedefs import Language
 from server.utils import huggingface_download
+
+logger = get_logger(__name__)
 
 
 class Translator(TranslatorProtocol):
@@ -318,11 +321,38 @@ def get_translator(
 
     model_path = huggingface_download(repository)
     tokeniser = Tokenizer.from_file(str(Path(model_path) / "tokenizer.json"))
-    translator = CTranslator(
-        model_path,
-        "cuda" if use_cuda else "cpu",
-        compute_type="default" if testing else "auto",
-        inter_threads=translator_threads,
-    )
+    
+    # Check if CUDA is actually available
+    device = "cuda" if use_cuda else "cpu"
+    if use_cuda:
+        try:
+            # Try to create a translator with CUDA to check availability
+            # This will fail if CUDA libraries aren't available
+            test_translator = CTranslator(
+                model_path,
+                "cuda",
+                compute_type="default" if testing else "auto",
+                inter_threads=translator_threads,
+            )
+            # If successful, use CUDA
+            translator = test_translator
+            logger.info("CUDA device initialized successfully")
+        except (RuntimeError, OSError) as e:
+            # CUDA not available, fall back to CPU
+            logger.warning("CUDA requested but not available, falling back to CPU", error=str(e))
+            device = "cpu"
+            translator = CTranslator(
+                model_path,
+                "cpu",
+                compute_type="default" if testing else "auto",
+                inter_threads=translator_threads,
+            )
+    else:
+        translator = CTranslator(
+            model_path,
+            "cpu",
+            compute_type="default" if testing else "auto",
+            inter_threads=translator_threads,
+        )
 
-    return Translator(translator, tokeniser, use_cuda=use_cuda)
+    return Translator(translator, tokeniser, use_cuda=(device == "cuda"))

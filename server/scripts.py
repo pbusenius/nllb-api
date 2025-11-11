@@ -32,7 +32,27 @@ def run_args() -> tuple[str, ...]:
     args (tuple[str, ...])
         common arguments for running an OCI container
     """
-    return ("run", "--init", "--rm", "--gpus", "all")
+    return ("run", "--init", "--rm")
+
+
+def run_args_gpu() -> tuple[str, ...]:
+    """
+    Summary
+    -------
+    get GPU-enabled arguments for running an OCI container
+
+    Returns
+    -------
+    args (tuple[str, ...])
+        GPU-enabled arguments for running an OCI container
+    """
+    oci = get_oci()
+    if oci == "podman":
+        # Podman uses --device instead of --gpus
+        return ("run", "--init", "--rm", "--device", "nvidia.com/gpu=all")
+    else:
+        # Docker uses --gpus
+        return ("run", "--init", "--rm", "--gpus", "all")
 
 
 def get_unused_port() -> int:
@@ -68,6 +88,16 @@ def stub() -> None:
     """
     env["STUB_TRANSLATOR"] = "True"
     env["STUB_LANGUAGE_DETECTOR"] = "True"
+    main()
+
+
+def cuda() -> None:
+    """
+    Summary
+    -------
+    run the server with CUDA inference
+    """
+    env["USE_CUDA"] = "True"
     main()
 
 
@@ -111,13 +141,15 @@ def gpu() -> None:
     port = get_unused_port()
     docker_run = [
         oci,
-        *run_args(),
+        *run_args_gpu(),
         "-e",
         f"SERVER_PORT={port}",
         "-e",
         "TRANSLATOR_THREADS=4",
         "-e",
         "AUTH_TOKEN=Test",
+        "-e",
+        "USE_CUDA=True",
         "-p",
         f"{port}:{port}",
         "nllb-api",

@@ -16,6 +16,7 @@ def main() -> None:
         host="0.0.0.0",
         port=config.server_port,
         workers=config.worker_count,
+        access_log=False,  # Disable uvicorn access logs - we use structured logging instead
     )
 
 

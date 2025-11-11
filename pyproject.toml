@@ -19,6 +19,7 @@ dependencies = [
     "sse-starlette>=2.1.0",
     "opentelemetry-instrumentation-system-metrics>=0.58b0",
     "pytest-env>=1.2.0",
+    "structlog>=24.1.0",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +29,7 @@ cuda = ["nvidia-cublas-cu12>=12.9.1.4"]
 nllb-api = "server:main"
 run = "server:main"
 nllb-api-stub = "server.scripts:stub"
+nllb-api-cuda = "server.scripts:cuda"
 docker-cpu = "server.scripts:cpu"
 docker-gpu = "server.scripts:gpu"
 docker-hf = "server.scripts:huggingface"

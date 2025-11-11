@@ -13,6 +13,8 @@ from fastapi.staticfiles import StaticFiles
 from server.api import api_router, monitoring
 from server.config import Config
 from server.lifespans import load_language_detector, load_translator_model
+from server.logging_config import setup_structlog, get_logger
+from server.middleware.structured_logging import StructuredLoggingMiddleware
 from server.plugins.consul import consul_register
 from server.plugins.swagger_ui import setup_swagger_ui
 from server.telemetry import get_log_handler, setup_telemetry
@@ -37,8 +39,14 @@ def exception_handler(request: Request, exc: Exception) -> JSONResponse:
     response (JSONResponse)
         the error response
     """
-    logger = getLogger("nllb-api")
-    logger.error(exc, exc_info=exc)
+    logger = get_logger("nllb-api")
+    logger.error(
+        "Unhandled exception",
+        exc_info=exc,
+        path=request.url.path,
+        method=request.method,
+        status_code=500,
+    )
     return JSONResponse(
         content={"detail": "Internal Server Error"},
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -78,6 +86,9 @@ async def lifespan(app: FastAPI):
     """
     config: Config = app.state.config
     app_id: str = app.state.app_id
+    logger = get_logger("nllb-api")
+
+    logger.info("Starting application", app_id=app_id, app_name=config.app_name)
 
     # Load models
     async with load_language_detector(
@@ -93,6 +104,7 @@ async def lifespan(app: FastAPI):
         )(app):
             # Register with Consul if configured
             if config.consul_http_addr and config.consul_service_address:
+                logger.info("Registering with Consul", consul_addr=config.consul_http_addr)
                 async with consul_register(
                     app,
                     app_name=config.app_name,
@@ -104,9 +116,13 @@ async def lifespan(app: FastAPI):
                     server_root_path=config.server_root_path,
                     consul_auth_token=config.consul_auth_token,
                 ):
+                    logger.info("Application started successfully", app_id=app_id)
                     yield
             else:
+                logger.info("Application started successfully", app_id=app_id)
                 yield
+    
+    logger.info("Shutting down application", app_id=app_id)
 
 
 def create_app(config: Config | None = None) -> FastAPI:
@@ -119,7 +135,15 @@ def create_app(config: Config | None = None) -> FastAPI:
     ascii_letters_with_digits = f"{ascii_letters}{digits}"
     app_name = config.app_name
     app_id = f"{app_name}-{''.join(choice(ascii_letters_with_digits) for _ in range(4))}"  # noqa: S311
-    logger = getLogger(app_name)
+    
+    # Set up structured logging
+    log_level = environ.get("LOG_LEVEL", "INFO")
+    use_json = environ.get("LOG_JSON", "true").lower() == "true"
+    use_colors = environ.get("LOG_COLORS", "false").lower() == "true"
+    setup_structlog(service_name=app_name, log_level=log_level, use_json=use_json, use_colors=use_colors)
+    
+    logger = get_logger(app_name)
+    std_logger = getLogger(app_name)  # Keep for OpenTelemetry integration
 
     # Create FastAPI app
     fastapi_app = FastAPI(
@@ -142,13 +166,23 @@ def create_app(config: Config | None = None) -> FastAPI:
     # Set up OpenTelemetry
     if config.otel_enabled:
         # Set up logging handler if OTLP endpoint is configured
+        # Note: OpenTelemetry handlers will still work but won't produce console output
         if config.otel_exporter_otlp_endpoint:
             handler = get_log_handler(otlp_service_name=app_name, otlp_service_instance_id=app_id)
-            logger.addHandler(handler)
-            getLogger("uvicorn.access").addHandler(handler)
+            std_logger.addHandler(handler)
+            # uvicorn.access logs will go to OTLP but not console
+            uvicorn_logger = getLogger("uvicorn.access")
+            uvicorn_logger.addHandler(handler)
+            uvicorn_logger.propagate = False  # Prevent console output
 
         # Set up OpenTelemetry instrumentation
         setup_telemetry(fastapi_app, service_name=app_name)
+        logger.info("OpenTelemetry instrumentation enabled", service_name=app_name, app_id=app_id)
+    else:
+        logger.info("OpenTelemetry instrumentation disabled")
+    
+    # Add structured logging middleware
+    fastapi_app.add_middleware(StructuredLoggingMiddleware)
 
     # Configure CORS
     allow_methods_dict: dict[str, bool] = {
@@ -190,6 +224,8 @@ def create_app(config: Config | None = None) -> FastAPI:
         )
         setup_swagger_ui(fastapi_app, config.server_root_path)
 
+    logger.info("Application created", app_name=app_name, app_id=app_id, version="4.2.0")
+    
     return fastapi_app
 
 
