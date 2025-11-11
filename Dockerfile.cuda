@@ -24,20 +24,18 @@ RUN apt-get update && \
         python${PYTHON_VERSION}-dev \
     && curl -sS https://bootstrap.pypa.io/get-pip.py | python${PYTHON_VERSION} \
     && pip uninstall -y pip setuptools wheel \
-    && apt-get purge -y --auto-remove \
-        software-properties-common \
-        curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /root/.cache
+    && apt-get purge -y --auto-remove software-properties-common curl \
+    && rm -rf /var/lib/apt/lists/* /root/.cache
 
 WORKDIR /build
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Copy dependency files
+# Copy dependency files and application code
 COPY pyproject.toml uv.lock ./
 COPY language language/
+COPY server/ server/
 
 # Install dependencies with CUDA support
 ENV UV_LINK_MODE=copy \
@@ -49,8 +47,8 @@ ENV UV_LINK_MODE=copy \
     PYTHONOPTIMIZE=2 \
     USE_CUDA=1
 
-RUN uv sync --python python${PYTHON_VERSION} --no-install-project --extra cuda && \
-    uv sync --python python${PYTHON_VERSION} --extra cuda && \
+RUN uv sync --python python${PYTHON_VERSION} --extra cuda && \
+    rm -rf language && \
     find .venv -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
     find .venv -type f -name "*.pyc" -delete && \
     find .venv -type f -name "*.pyo" -delete && \
@@ -61,12 +59,7 @@ RUN uv sync --python python${PYTHON_VERSION} --no-install-project --extra cuda &
     find .venv -type f -name "*.a" -delete && \
     find .venv -type f -name "*.h" -delete && \
     find .venv -type d -name "include" -exec rm -rf {} + 2>/dev/null || true && \
-    find .venv -type f -name "*.txt" -exec grep -l -i "license\|readme\|changelog\|authors\|contributors" {} \; -delete 2>/dev/null || true && \
-    find .venv -type f -name "*.md" -delete && \
-    find .venv -type f -name "*.rst" -delete && \
-    find .venv -type d -name "docs" -exec rm -rf {} + 2>/dev/null || true && \
-    find .venv -type d -name "doc" -exec rm -rf {} + 2>/dev/null || true && \
-    rm -rf language
+    find .venv -type f \( -name "*.md" -o -name "*.rst" -o -name "*.txt" \) -delete
 
 # Stage 3: Final runtime image
 FROM nvidia/cuda:${CUDA_VERSION}-${CUDA_VARIANT}
@@ -79,54 +72,64 @@ ENV HOME=/home/user \
     PYTHONDONTWRITEBYTECODE=1 \
     TRANSFORMERS_NO_ADVISORY_WARNINGS=1 \
     USE_CUDA=1 \
+    HUGGINGFACE_LOCAL_ONLY=1 \
+    PYTHONPATH=/home/user \
     LD_LIBRARY_PATH=/home/user/.venv/lib/python${PYTHON_VERSION}/site-packages/nvidia/cublas/lib:${LD_LIBRARY_PATH}
 
-# Install Python 3.13 runtime from deadsnakes PPA
+# Install Python 3.13 runtime and build tools (needed for fasttext compilation)
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         tzdata \
         software-properties-common \
+        build-essential \
+        g++ \
     && ln -fs /usr/share/zoneinfo/UTC /etc/localtime \
     && add-apt-repository ppa:deadsnakes/ppa -y \
     && apt-get update && \
     apt-get install -y --no-install-recommends \
         python${PYTHON_VERSION} \
+        python${PYTHON_VERSION}-dev \
         libpython${PYTHON_VERSION} \
-    && apt-get purge -y --auto-remove \
-        software-properties-common \
+    && apt-get purge -y --auto-remove software-properties-common \
     && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /etc/apt/sources.list.d/deadsnakes-ubuntu-ppa-*.list \
-    && rm -rf /etc/apt/trusted.gpg.d/deadsnakes-ubuntu-ppa.gpg && \
-    rm -rf /usr/share/locale/* && \
-    rm -rf /usr/share/doc/* && \
-    rm -rf /usr/share/man/* && \
-    rm -rf /usr/share/info/*
+        /etc/apt/sources.list.d/deadsnakes-ubuntu-ppa-*.list \
+        /etc/apt/trusted.gpg.d/deadsnakes-ubuntu-ppa.gpg \
+        /usr/share/locale/* \
+        /usr/share/doc/* \
+        /usr/share/man/* \
+        /usr/share/info/*
 
-# Create user
+# Create user and install uv
 RUN useradd -m -u 1000 user && \
-    mkdir -p $HOME/swagger-ui-assets && \
-    chown -R user:user $HOME
+    mkdir -p /home/user/swagger-ui-assets /home/user/.cache/huggingface && \
+    chown -R user:user /home/user
+
+COPY --chown=user:user --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 USER user
 WORKDIR $HOME
 
-# Create cache directory for models (will be populated at runtime if not in image)
-RUN mkdir -p /home/user/.cache/huggingface
-
-# Copy models from local models/ directory (created by make download-models)
-# Run 'make download-models' first to populate models/ directory
-COPY --chown=user:user models /home/user/.cache/huggingface
-
-# Copy Python environment
+# Copy Python environment from builder
 COPY --chown=user:user --from=python-builder /build/.venv /home/user/.venv
+
+# Copy application code and models
+COPY --chown=user:user pyproject.toml uv.lock ./
+COPY --chown=user:user language language/
+COPY --chown=user:user server/ server/
+COPY --chown=user:user models/. /home/user/.cache/huggingface/
+
+# Clean up language directory (fasttext already installed in venv from builder)
+RUN rm -rf language
+
+# Switch to root to clean up build tools, then back to user
+USER root
+RUN apt-get purge -y --auto-remove build-essential g++ python${PYTHON_VERSION}-dev && \
+    rm -rf /var/lib/apt/lists/*
+USER user
 
 # Copy Swagger UI assets
 COPY --chown=user:user --from=swagger-ui /usr/share/nginx/html/swagger-ui.css $HOME/swagger-ui-assets/swagger-ui.css
 COPY --chown=user:user --from=swagger-ui /usr/share/nginx/html/swagger-ui-bundle.js $HOME/swagger-ui-assets/swagger-ui-bundle.js
 
-# Copy application code (only what's needed)
-COPY --chown=user:user server/ server/
-COPY --chown=user:user pyproject.toml ./
-
-CMD ["nllb-api"]
+CMD ["python", "-c", "from server import main; main()"]
 
