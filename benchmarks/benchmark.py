@@ -203,11 +203,20 @@ async def benchmark_batch(
             latencies.extend([batch_latency] * len(batch))
         except httpx.HTTPStatusError as e:
             request_end = time.time()
+            # Try to get error details from response
+            error_detail = str(e)
+            try:
+                error_json = e.response.json()
+                if isinstance(error_json, dict):
+                    error_detail = error_json.get("detail", error_json.get("message", str(e)))
+            except Exception:
+                pass
+            
             error_info = {
                 "batch_start": i,
                 "batch_size": len(batch),
                 "status": e.response.status_code,
-                "error": str(e),
+                "error": error_detail,
                 "language_pairs": [(item["source"], item["target"]) for item in batch],
             }
             errors.append(error_info)
@@ -283,19 +292,9 @@ async def run_benchmark(
     warmup: int,
     dataset: str = "flores",
     domain: str | None = None,
+    batch_only: bool = False,
 ) -> None:
     """Run the benchmark."""
-    print(f"Benchmark Configuration:")
-    print(f"  Base URL: {base_url}")
-    print(f"  Dataset: {dataset}")
-    if domain:
-        print(f"  Domain filter: {domain}")
-    print(f"  Total translations: {num_translations}")
-    print(f"  Batch size: {batch_size}")
-    print(f"  Iterations: {iterations}")
-    print(f"  Warmup requests: {warmup}")
-    print()
-
     if domain:
         test_data = get_flores_by_domain(domain)
         if len(test_data) < num_translations:
@@ -307,13 +306,34 @@ async def run_benchmark(
     else:
         test_data = generate_test_data(num_translations, dataset=dataset)
 
+    # Validate batch_size
+    if batch_size > len(test_data):
+        effective_batch_size = len(test_data)
+        print(f"⚠️  Warning: Batch size ({batch_size}) is larger than number of translations ({len(test_data)})")
+        print(f"   This will result in a single batch with all {len(test_data)} items.")
+        print(f"   Consider using --batch-size <= {len(test_data)} to properly test batching.\n")
+    else:
+        effective_batch_size = batch_size
+
+    print(f"Benchmark Configuration:")
+    print(f"  Base URL: {base_url}")
+    print(f"  Dataset: {dataset}")
+    if domain:
+        print(f"  Domain filter: {domain}")
+    print(f"  Total translations: {num_translations}")
+    print(f"  Batch size: {batch_size}" + (f" (effective: {effective_batch_size})" if batch_size > len(test_data) else ""))
+    print(f"  Iterations: {iterations}")
+    print(f"  Warmup requests: {warmup}")
+    print()
+
     async with httpx.AsyncClient(timeout=300.0) as client:
         # Warmup
         if warmup > 0:
             print(f"Warming up with {warmup} requests...")
             warmup_data = test_data[:warmup]
-            await benchmark_single(client, base_url, warmup_data)
-            await benchmark_batch(client, base_url, warmup_data, min(batch_size, warmup))
+            if not batch_only:
+                await benchmark_single(client, base_url, warmup_data)
+            await benchmark_batch(client, base_url, warmup_data, min(effective_batch_size, warmup))
             print("Warmup complete.\n")
 
         # Run benchmarks
@@ -323,12 +343,13 @@ async def run_benchmark(
         for iteration in range(iterations):
             print(f"Iteration {iteration + 1}/{iterations}...")
 
-            # Single translation benchmark
-            single_result = await benchmark_single(client, base_url, test_data)
-            single_results.append(single_result)
+            # Single translation benchmark (skip if batch_only)
+            if not batch_only:
+                single_result = await benchmark_single(client, base_url, test_data)
+                single_results.append(single_result)
 
             # Batch translation benchmark
-            batch_result = await benchmark_batch(client, base_url, test_data, batch_size)
+            batch_result = await benchmark_batch(client, base_url, test_data, effective_batch_size)
             batch_results.append(batch_result)
 
         # Aggregate results
@@ -336,57 +357,82 @@ async def run_benchmark(
         print("RESULTS")
         print("=" * 60)
 
-        # Single translation aggregated
-        avg_single_throughput = statistics.mean([r.throughput for r in single_results])
-        avg_single_latency = statistics.mean([r.avg_latency for r in single_results])
-        avg_single_p50 = statistics.mean([r.p50_latency for r in single_results])
-        avg_single_p95 = statistics.mean([r.p95_latency for r in single_results])
-        avg_single_p99 = statistics.mean([r.p99_latency for r in single_results])
+        if batch_only:
+            # Batch-only mode: show only batch results
+            avg_batch_throughput = statistics.mean([r.throughput for r in batch_results])
+            avg_batch_latency = statistics.mean([r.avg_latency for r in batch_results])
+            avg_batch_p50 = statistics.mean([r.p50_latency for r in batch_results])
+            avg_batch_p95 = statistics.mean([r.p95_latency for r in batch_results])
+            avg_batch_p99 = statistics.mean([r.p99_latency for r in batch_results])
 
-        # Batch translation aggregated
-        avg_batch_throughput = statistics.mean([r.throughput for r in batch_results])
-        avg_batch_latency = statistics.mean([r.avg_latency for r in batch_results])
-        avg_batch_p50 = statistics.mean([r.p50_latency for r in batch_results])
-        avg_batch_p95 = statistics.mean([r.p95_latency for r in batch_results])
-        avg_batch_p99 = statistics.mean([r.p99_latency for r in batch_results])
+            print("\n" + "=" * 60)
+            print("BATCH TRANSLATION RESULTS")
+            print("=" * 60)
+            print(f"{'Metric':<25} {'Value':>15}")
+            print("-" * 60)
+            print(f"{'Throughput (trans/sec)':<25} {avg_batch_throughput:>15.2f}")
+            print(f"{'Avg Latency (ms)':<25} {avg_batch_latency:>15.2f}")
+            print(f"{'P50 Latency (ms)':<25} {avg_batch_p50:>15.2f}")
+            print(f"{'P95 Latency (ms)':<25} {avg_batch_p95:>15.2f}")
+            print(f"{'P99 Latency (ms)':<25} {avg_batch_p99:>15.2f}")
+            print("=" * 60)
 
-        # Calculate improvements
-        throughput_improvement = ((avg_batch_throughput - avg_single_throughput) / avg_single_throughput) * 100
-        latency_improvement = ((avg_single_latency - avg_batch_latency) / avg_single_latency) * 100
-        p50_improvement = ((avg_single_p50 - avg_batch_p50) / avg_single_p50) * 100
-        p95_improvement = ((avg_single_p95 - avg_batch_p95) / avg_single_p95) * 100
-        p99_improvement = ((avg_single_p99 - avg_batch_p99) / avg_single_p99) * 100
-
-        # Comparison table
-        print("\n" + "=" * 85)
-        print("COMPARISON: Single vs Batch Translation")
-        print("=" * 85)
-        print(f"{'Metric':<25} {'Single':>15} {'Batch':>15} {'Improvement':>15}")
-        print("-" * 85)
-        print(f"{'Throughput (trans/sec)':<25} {avg_single_throughput:>15.2f} {avg_batch_throughput:>15.2f} {throughput_improvement:>14.2f}%")
-        print(f"{'Avg Latency (ms)':<25} {avg_single_latency:>15.2f} {avg_batch_latency:>15.2f} {latency_improvement:>14.2f}%")
-        print(f"{'P50 Latency (ms)':<25} {avg_single_p50:>15.2f} {avg_batch_p50:>15.2f} {p50_improvement:>14.2f}%")
-        print(f"{'P95 Latency (ms)':<25} {avg_single_p95:>15.2f} {avg_batch_p95:>15.2f} {p95_improvement:>14.2f}%")
-        print(f"{'P99 Latency (ms)':<25} {avg_single_p99:>15.2f} {avg_batch_p99:>15.2f} {p99_improvement:>14.2f}%")
-        print("=" * 85)
-
-        # Summary
-        print(f"\n📊 Summary (averaged over {iterations} iterations):")
-        print(f"  Batch processing is {throughput_improvement:+.1f}% faster in throughput")
-        print(f"  Batch processing reduces latency by {latency_improvement:+.1f}%")
-        
-        if throughput_improvement > 0:
-            speedup = avg_batch_throughput / avg_single_throughput
-            print(f"  Speedup factor: {speedup:.2f}x")
+            print(f"\n📊 Summary (averaged over {iterations} iterations):")
+            print(f"  Throughput: {avg_batch_throughput:.2f} translations/sec")
+            print(f"  Average latency: {avg_batch_latency:.2f}ms")
         else:
-            print(f"  ⚠️  Batch processing is slower - consider adjusting batch size")
+            # Comparison mode: show single vs batch
+            avg_single_throughput = statistics.mean([r.throughput for r in single_results])
+            avg_single_latency = statistics.mean([r.avg_latency for r in single_results])
+            avg_single_p50 = statistics.mean([r.p50_latency for r in single_results])
+            avg_single_p95 = statistics.mean([r.p95_latency for r in single_results])
+            avg_single_p99 = statistics.mean([r.p99_latency for r in single_results])
+
+            # Batch translation aggregated
+            avg_batch_throughput = statistics.mean([r.throughput for r in batch_results])
+            avg_batch_latency = statistics.mean([r.avg_latency for r in batch_results])
+            avg_batch_p50 = statistics.mean([r.p50_latency for r in batch_results])
+            avg_batch_p95 = statistics.mean([r.p95_latency for r in batch_results])
+            avg_batch_p99 = statistics.mean([r.p99_latency for r in batch_results])
+
+            # Calculate improvements
+            throughput_improvement = ((avg_batch_throughput - avg_single_throughput) / avg_single_throughput) * 100
+            latency_improvement = ((avg_single_latency - avg_batch_latency) / avg_single_latency) * 100
+            p50_improvement = ((avg_single_p50 - avg_batch_p50) / avg_single_p50) * 100
+            p95_improvement = ((avg_single_p95 - avg_batch_p95) / avg_single_p95) * 100
+            p99_improvement = ((avg_single_p99 - avg_batch_p99) / avg_single_p99) * 100
+
+            # Comparison table
+            print("\n" + "=" * 85)
+            print("COMPARISON: Single vs Batch Translation")
+            print("=" * 85)
+            print(f"{'Metric':<25} {'Single':>15} {'Batch':>15} {'Improvement':>15}")
+            print("-" * 85)
+            print(f"{'Throughput (trans/sec)':<25} {avg_single_throughput:>15.2f} {avg_batch_throughput:>15.2f} {throughput_improvement:>14.2f}%")
+            print(f"{'Avg Latency (ms)':<25} {avg_single_latency:>15.2f} {avg_batch_latency:>15.2f} {latency_improvement:>14.2f}%")
+            print(f"{'P50 Latency (ms)':<25} {avg_single_p50:>15.2f} {avg_batch_p50:>15.2f} {p50_improvement:>14.2f}%")
+            print(f"{'P95 Latency (ms)':<25} {avg_single_p95:>15.2f} {avg_batch_p95:>15.2f} {p95_improvement:>14.2f}%")
+            print(f"{'P99 Latency (ms)':<25} {avg_single_p99:>15.2f} {avg_batch_p99:>15.2f} {p99_improvement:>14.2f}%")
+            print("=" * 85)
+
+            # Summary
+            print(f"\n📊 Summary (averaged over {iterations} iterations):")
+            print(f"  Batch processing is {throughput_improvement:+.1f}% faster in throughput")
+            print(f"  Batch processing reduces latency by {latency_improvement:+.1f}%")
+            
+            if throughput_improvement > 0:
+                speedup = avg_batch_throughput / avg_single_throughput
+                print(f"  Speedup factor: {speedup:.2f}x")
+            else:
+                print(f"  ⚠️  Batch processing is slower - consider adjusting batch size")
 
         # Error reporting
         all_single_errors = []
         all_batch_errors = []
-        for result in single_results:
-            if hasattr(result, "errors") and result.errors:
-                all_single_errors.extend(result.errors)
+        if not batch_only:
+            for result in single_results:
+                if hasattr(result, "errors") and result.errors:
+                    all_single_errors.extend(result.errors)
         for result in batch_results:
             if hasattr(result, "errors") and result.errors:
                 all_batch_errors.extend(result.errors)
@@ -405,15 +451,35 @@ async def run_benchmark(
 
             if all_batch_errors:
                 print(f"\n  Batch Translation Errors: {len(all_batch_errors)} batches")
-                for error in all_batch_errors[:5]:  # Show first 5 batch errors
-                    pairs = error.get("language_pairs", [])
-                    print(f"    Batch at index {error.get('batch_start', '?')}: {len(pairs)} items")
-                    if pairs:
-                        print(f"      Language pairs: {pairs[:3]}..." if len(pairs) > 3 else f"      Language pairs: {pairs}")
+                # Group errors by status code
+                errors_by_status: dict[int, list[dict[str, Any]]] = {}
+                for error in all_batch_errors:
+                    status = error.get("status", 0)
+                    if status not in errors_by_status:
+                        errors_by_status[status] = []
+                    errors_by_status[status].append(error)
+                
+                for status_code, status_errors in sorted(errors_by_status.items()):
+                    print(f"\n    Status {status_code}: {len(status_errors)} batch(es)")
+                    # Show first error detail
+                    first_error = status_errors[0]
+                    print(f"      Error: {first_error.get('error', 'Unknown error')[:200]}")
+                    # Show sample language pairs
+                    if status_errors:
+                        sample_pairs = status_errors[0].get("language_pairs", [])
+                        if sample_pairs:
+                            print(f"      Sample language pairs: {sample_pairs[:5]}..." if len(sample_pairs) > 5 else f"      Language pairs: {sample_pairs}")
+                    # Show batch indices
+                    batch_indices = [e.get("batch_start", "?") for e in status_errors[:10]]
+                    if len(status_errors) > 10:
+                        print(f"      Batch indices: {batch_indices} ... ({len(status_errors)} total)")
+                    else:
+                        print(f"      Batch indices: {batch_indices}")
 
         # Detailed results
         print(f"\nDetailed Results (Iteration 1):")
-        print(single_results[0])
+        if not batch_only:
+            print(single_results[0])
         print(batch_results[0])
 
 
@@ -463,6 +529,11 @@ def main() -> None:
         default=None,
         help="Filter FLORES samples by domain (e.g., 'general', 'technical', 'news', 'science', 'culture', 'social', 'business', 'environment', 'health', 'academic', 'technology')",
     )
+    parser.add_argument(
+        "--batch-only",
+        action="store_true",
+        help="Run only batch translation benchmarks (skip single translation)",
+    )
 
     args = parser.parse_args()
 
@@ -477,6 +548,7 @@ def main() -> None:
             warmup=args.warmup,
             dataset=args.dataset,
             domain=args.domain,
+            batch_only=args.batch_only,
         )
     )
 
