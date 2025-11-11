@@ -55,7 +55,7 @@ class TranslationBatch(BaseModel):
         list[TranslationBatchItem],
         Field(
             min_length=1,
-            max_length=128,
+            max_length=1000,
             description="list of translation requests to process in batch",
             examples=[
                 [
