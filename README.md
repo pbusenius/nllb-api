@@ -10,7 +10,7 @@
 [![client.yml](https://github.com/pbusenius/nllb-api/actions/workflows/client.yml/badge.svg)](https://github.com/pbusenius/nllb-api/actions/workflows/client.yml)
 [![formatter.yml](https://github.com/pbusenius/nllb-api/actions/workflows/formatter.yml/badge.svg)](https://github.com/pbusenius/nllb-api/actions/workflows/formatter.yml)
 
-A fast CPU-based API for Meta's [No Language Left Behind](https://huggingface.co/docs/transformers/model_doc/nllb) distilled 1.3B 8-bit quantised variant, hosted on Hugging Face Spaces. To achieve faster executions, we are using [CTranslate2](https://github.com/OpenNMT/CTranslate2) as our inference engine.
+A fast CPU and GPU-accelerated API for Meta's [No Language Left Behind](https://huggingface.co/docs/transformers/model_doc/nllb) distilled 1.3B 8-bit quantised variant, hosted on Hugging Face Spaces. To achieve faster executions, we are using [CTranslate2](https://github.com/OpenNMT/CTranslate2) as our inference engine. The API supports both single and batch translation requests for improved GPU utilization.
 
 > [!IMPORTANT]\
 > NLLB was trained with input lengths not exceeding 512 tokens. Translating longer sequences might result in quality degradation. Consider splitting your input into smaller chunks if you begin observing artefacts.
@@ -236,8 +236,21 @@ Zulu                               | zul_Latn
 
 ### cURL
 
+**Single Translation:**
 ```bash
 curl 'https://pbusenius-nllb-api.hf.space/api/translator?text=Hello&source=eng_Latn&target=spa_Latn'
+```
+
+**Batch Translation (for improved GPU utilization):**
+```bash
+curl -X POST 'https://pbusenius-nllb-api.hf.space/api/translator/batch' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "translations": [
+      {"text": "Hello", "source": "eng_Latn", "target": "spa_Latn"},
+      {"text": "Bonjour", "source": "fra_Latn", "target": "eng_Latn"}
+    ]
+  }'
 ```
 
 To stream translations as Server-Sent Events, you may query the `/translator/stream` endpoint instead.
@@ -340,23 +353,36 @@ docker run --rm \
 
 ### CUDA Support
 
-You can accelerate your inference with CUDA by building with the `USE_CUDA` build argument.
+You can accelerate your inference with CUDA. First, download the models locally:
 
 ```bash
-docker build -f Dockerfile.cuda -t nllb-api .
+make download-models
 ```
 
-After building the image, you can run the image with the following.
+Then build the CUDA-enabled image:
+
+```bash
+make docker-build-cuda
+```
+
+After building the image, you can run it with GPU support:
 
 > [!NOTE]\
-> `OMP_NUM_THREADS` has no effect when CUDA is enabled.
+> `OMP_NUM_THREADS` has no effect when CUDA is enabled. Models are pre-copied into the image and will not be downloaded at runtime.
 
 ```bash
 docker run --rm --gpus all \
+  -e USE_CUDA=True \
   -e SERVER_PORT=7860 \
   -e WORKER_COUNT=1 \
   -p 7860:7860 \
-  nllb-api
+  pbusenius/nllb-api:main-cuda
+```
+
+Or use the Makefile target:
+
+```bash
+make docker-run-cuda PORT=7860
 ```
 
 ### Telemetry
@@ -388,7 +414,12 @@ You can run the server locally in several ways:
 
 **Direct execution (requires models to be downloaded):**
 ```bash
-uv run run
+uv run nllb-api
+```
+
+**CUDA-enabled execution:**
+```bash
+uv run nllb-api-cuda
 ```
 
 **Stub mode (no model downloads, useful for testing):**
@@ -398,12 +429,40 @@ uv run nllb-api-stub
 
 **Docker with CPU inference:**
 ```bash
-uv run docker-cpu
+make docker-build
+docker run --rm -e SERVER_PORT=49494 -p 49494:49494 pbusenius/nllb-api:main
 ```
 
 **Docker with GPU inference:**
 ```bash
-uv run docker-gpu
+make download-models  # Download models first
+make docker-build-cuda
+make docker-run-cuda PORT=49494
 ```
 
-After starting the server, you can access the Swagger UI at [localhost:7860/api/schema/swagger](http://localhost:7860/api/schema/swagger).
+After starting the server, you can access the Swagger UI at [localhost:49494/api/schema/swagger](http://localhost:49494/api/schema/swagger).
+
+### Benchmarking
+
+A benchmark tool is available to compare single vs batch translation performance using FLORES-200 dataset:
+
+```bash
+# Compare single vs batch translation
+uv run python benchmarks/benchmark.py --batch-size 200 --num-translations 1000
+
+# Run only batch benchmarks
+uv run python benchmarks/benchmark.py --batch-only --batch-size 200 --num-translations 1000
+
+# Filter by domain
+uv run python benchmarks/benchmark.py --dataset flores --domain technical --batch-size 50
+```
+
+See `benchmarks/README.md` for more details.
+
+### Docker Build Cleanup
+
+Clean up Docker build cache and intermediate stages:
+
+```bash
+make docker-clean
+```
