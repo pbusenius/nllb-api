@@ -1,5 +1,5 @@
 ARG PYTHON_VERSION=3.13
-ARG CUDA_VERSION=12.1.0
+ARG CUDA_VERSION=12.2.2
 ARG CUDA_VARIANT=cudnn8-runtime-ubuntu22.04
 
 # Stage 1: Extract Swagger UI assets
@@ -109,17 +109,24 @@ COPY --chown=user:user --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 USER user
 WORKDIR $HOME
 
-# Copy Python environment from builder
-COPY --chown=user:user --from=python-builder /build/.venv /home/user/.venv
-
-# Copy application code and models
+# Copy application code and dependency files
 COPY --chown=user:user pyproject.toml uv.lock ./
 COPY --chown=user:user language language/
 COPY --chown=user:user server/ server/
 COPY --chown=user:user models/. /home/user/.cache/huggingface/
 
-# Clean up language directory (fasttext already installed in venv from builder)
-RUN rm -rf language
+# Install dependencies with CUDA support (fasttext will be compiled here)
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_NO_CACHE=1 \
+    UV_NO_DEV=1 \
+    UV_LOCKED=1 \
+    UV_NO_EDITABLE=1 \
+    PYTHONOPTIMIZE=2 \
+    USE_CUDA=1
+
+RUN uv sync --python python${PYTHON_VERSION} --extra cuda && \
+    rm -rf language /home/user/.cache/uv
 
 # Switch to root to clean up build tools, then back to user
 USER root
