@@ -58,5 +58,9 @@ docker-push-cuda: docker-build-cuda
 
 # Clean up Docker build cache and intermediate stages
 docker-clean:
-	docker builder prune -a -f
+	@echo "Cleaning build cache (this may take a moment)..."
+	@docker builder prune -a -f
+	@echo "Cleaning dangling images..."
+	@docker image prune -f
+	@echo "Done!"
 
