@@ -159,15 +159,3 @@ def gpu() -> None:
     run(docker_run, check=True)
 
 
-def huggingface() -> None:
-    """
-    Summary
-    -------
-    run the production image from the GitHub Container Registry
-    """
-    oci = get_oci()
-    docker_build = [oci, "build", "-t", "nllb-api", "."]
-    docker_run = [oci, *run_args(), "-p", f"7860:{get_unused_port()}", "nllb-api"]
-
-    run(docker_build, check=True)
-    run(docker_run, check=True)
