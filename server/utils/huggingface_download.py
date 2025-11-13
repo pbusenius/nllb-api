@@ -1,11 +1,14 @@
+import os
 from pathlib import Path
+
+from huggingface_hub import snapshot_download
 
 
 def huggingface_download(repository: str) -> str:
     """
     Summary
     -------
-    get the local huggingface model path (models are pre-copied into image)
+    get the local huggingface model path, downloading if not found locally
 
     Parameters
     ----------
@@ -32,8 +35,22 @@ def huggingface_download(repository: str) -> str:
         if snapshots:
             return str(snapshots[0])
     
-    # Models not found - raise error
-    raise FileNotFoundError(
-        f"Model {repository} not found in {cache_dir}. "
-        f"Run 'make download-models' to download models."
-    )
+    # Model not found locally - download if HUGGINGFACE_LOCAL_ONLY is not set
+    huggingface_local_only = os.getenv("HUGGINGFACE_LOCAL_ONLY", "0")
+    if huggingface_local_only in ("1", "true", "True"):
+        raise FileNotFoundError(
+            f"Model {repository} not found in {cache_dir}. "
+            f"Run 'make download-models' to download models."
+        )
+    
+    # Download the model
+    try:
+        model_path = snapshot_download(
+            repo_id=repository,
+            cache_dir=str(cache_dir),
+        )
+        return model_path
+    except Exception as e:
+        raise FileNotFoundError(
+            f"Failed to download {repository}: {e}"
+        ) from e
