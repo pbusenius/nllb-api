@@ -16,6 +16,7 @@ Usage:
 """
 
 import argparse
+import asyncio
 import statistics
 import time
 from collections.abc import Sequence
@@ -111,18 +112,14 @@ def generate_test_data(num_items: int) -> list[dict[str, Any]]:
     return result
 
 
-async def benchmark_single(
+async def _single_request(
     client: httpx.AsyncClient,
     base_url: str,
-    test_data: Sequence[dict[str, Any]],
-) -> BenchmarkResult:
-    """Benchmark single translation requests."""
-    latencies = []
-    errors = []
-
-    start_time = time.time()
-
-    for item in test_data:
+    item: dict[str, Any],
+    semaphore: asyncio.Semaphore,
+) -> tuple[float, dict[str, Any] | None]:
+    """Make a single translation request."""
+    async with semaphore:
         request_start = time.time()
         try:
             response = await client.get(
@@ -135,7 +132,7 @@ async def benchmark_single(
             )
             request_end = time.time()
             response.raise_for_status()
-            latencies.append(request_end - request_start)
+            return request_end - request_start, None
         except httpx.HTTPStatusError as e:
             request_end = time.time()
             error_info = {
@@ -145,9 +142,7 @@ async def benchmark_single(
                 "status": e.response.status_code,
                 "error": str(e),
             }
-            errors.append(error_info)
-            # Still record latency for failed requests
-            latencies.append(request_end - request_start)
+            return request_end - request_start, error_info
         except Exception as e:
             request_end = time.time()
             error_info = {
@@ -156,8 +151,38 @@ async def benchmark_single(
                 "target": item["target"],
                 "error": str(e),
             }
+            return request_end - request_start, error_info
+
+
+async def benchmark_single(
+    client: httpx.AsyncClient,
+    base_url: str,
+    test_data: Sequence[dict[str, Any]],
+    workers: int = 1,
+) -> BenchmarkResult:
+    """Benchmark single translation requests."""
+    latencies = []
+    errors = []
+
+    start_time = time.time()
+
+    # Create semaphore to limit concurrent requests
+    semaphore = asyncio.Semaphore(workers)
+
+    # Create all tasks
+    tasks = [
+        _single_request(client, base_url, item, semaphore)
+        for item in test_data
+    ]
+
+    # Execute all requests concurrently
+    results = await asyncio.gather(*tasks)
+
+    # Process results
+    for latency, error_info in results:
+        latencies.append(latency)
+        if error_info:
             errors.append(error_info)
-            latencies.append(request_end - request_start)
 
     total_time = time.time() - start_time
 
@@ -166,23 +191,16 @@ async def benchmark_single(
     return result
 
 
-async def benchmark_batch(
+async def _batch_request(
     client: httpx.AsyncClient,
     base_url: str,
-    test_data: Sequence[dict[str, Any]],
-    batch_size: int,
-) -> BenchmarkResult:
-    """Benchmark batch translation requests."""
-    latencies = []
-    errors = []
-
-    start_time = time.time()
-
-    # Process in batches
-    for i in range(0, len(test_data), batch_size):
-        batch = test_data[i : i + batch_size]
+    batch: Sequence[dict[str, Any]],
+    batch_start: int,
+    semaphore: asyncio.Semaphore,
+) -> tuple[float, int, dict[str, Any] | None]:
+    """Make a batch translation request."""
+    async with semaphore:
         request_start = time.time()
-
         batch_request = {
             "translations": [
                 {"text": item["text"], "source": item["source"], "target": item["target"]}
@@ -200,7 +218,7 @@ async def benchmark_batch(
 
             # Latency per item in batch
             batch_latency = (request_end - request_start) / len(batch)
-            latencies.extend([batch_latency] * len(batch))
+            return batch_latency, len(batch), None
         except httpx.HTTPStatusError as e:
             request_end = time.time()
             # Try to get error details from response
@@ -213,27 +231,61 @@ async def benchmark_batch(
                 pass
             
             error_info = {
-                "batch_start": i,
+                "batch_start": batch_start,
                 "batch_size": len(batch),
                 "status": e.response.status_code,
                 "error": error_detail,
                 "language_pairs": [(item["source"], item["target"]) for item in batch],
             }
-            errors.append(error_info)
-            # Still record latency for failed batch
             batch_latency = (request_end - request_start) / len(batch)
-            latencies.extend([batch_latency] * len(batch))
+            return batch_latency, len(batch), error_info
         except Exception as e:
             request_end = time.time()
             error_info = {
-                "batch_start": i,
+                "batch_start": batch_start,
                 "batch_size": len(batch),
                 "error": str(e),
                 "language_pairs": [(item["source"], item["target"]) for item in batch],
             }
-            errors.append(error_info)
             batch_latency = (request_end - request_start) / len(batch)
-            latencies.extend([batch_latency] * len(batch))
+            return batch_latency, len(batch), error_info
+
+
+async def benchmark_batch(
+    client: httpx.AsyncClient,
+    base_url: str,
+    test_data: Sequence[dict[str, Any]],
+    batch_size: int,
+    workers: int = 1,
+) -> BenchmarkResult:
+    """Benchmark batch translation requests."""
+    latencies = []
+    errors = []
+
+    start_time = time.time()
+
+    # Create semaphore to limit concurrent batch requests
+    semaphore = asyncio.Semaphore(workers)
+
+    # Create batches
+    batches = []
+    for i in range(0, len(test_data), batch_size):
+        batches.append((i, test_data[i : i + batch_size]))
+
+    # Create all tasks
+    tasks = [
+        _batch_request(client, base_url, batch, batch_start, semaphore)
+        for batch_start, batch in batches
+    ]
+
+    # Execute all batch requests concurrently
+    results = await asyncio.gather(*tasks)
+
+    # Process results
+    for batch_latency, batch_len, error_info in results:
+        latencies.extend([batch_latency] * batch_len)
+        if error_info:
+            errors.append(error_info)
 
     total_time = time.time() - start_time
 
@@ -293,6 +345,7 @@ async def run_benchmark(
     dataset: str = "flores",
     domain: str | None = None,
     batch_only: bool = False,
+    workers: int = 1,
 ) -> None:
     """Run the benchmark."""
     if domain:
@@ -322,6 +375,7 @@ async def run_benchmark(
         print(f"  Domain filter: {domain}")
     print(f"  Total translations: {num_translations}")
     print(f"  Batch size: {batch_size}" + (f" (effective: {effective_batch_size})" if batch_size > len(test_data) else ""))
+    print(f"  Async workers: {workers}")
     print(f"  Iterations: {iterations}")
     print(f"  Warmup requests: {warmup}")
     print()
@@ -332,8 +386,8 @@ async def run_benchmark(
             print(f"Warming up with {warmup} requests...")
             warmup_data = test_data[:warmup]
             if not batch_only:
-                await benchmark_single(client, base_url, warmup_data)
-            await benchmark_batch(client, base_url, warmup_data, min(effective_batch_size, warmup))
+                await benchmark_single(client, base_url, warmup_data, workers=workers)
+            await benchmark_batch(client, base_url, warmup_data, min(effective_batch_size, warmup), workers=workers)
             print("Warmup complete.\n")
 
         # Run benchmarks
@@ -345,11 +399,11 @@ async def run_benchmark(
 
             # Single translation benchmark (skip if batch_only)
             if not batch_only:
-                single_result = await benchmark_single(client, base_url, test_data)
+                single_result = await benchmark_single(client, base_url, test_data, workers=workers)
                 single_results.append(single_result)
 
             # Batch translation benchmark
-            batch_result = await benchmark_batch(client, base_url, test_data, effective_batch_size)
+            batch_result = await benchmark_batch(client, base_url, test_data, effective_batch_size, workers=workers)
             batch_results.append(batch_result)
 
         # Aggregate results
@@ -534,10 +588,14 @@ def main() -> None:
         action="store_true",
         help="Run only batch translation benchmarks (skip single translation)",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of async workers for concurrent requests (default: 1)",
+    )
 
     args = parser.parse_args()
-
-    import asyncio
 
     asyncio.run(
         run_benchmark(
@@ -549,6 +607,7 @@ def main() -> None:
             dataset=args.dataset,
             domain=args.domain,
             batch_only=args.batch_only,
+            workers=args.workers,
         )
     )
 
