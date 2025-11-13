@@ -65,6 +65,7 @@ RUN uv sync --python python${PYTHON_VERSION} --extra cuda && \
 FROM nvidia/cuda:${CUDA_VERSION}-${CUDA_VARIANT}
 
 ARG PYTHON_VERSION=3.13
+ARG INCLUDE_MODELS=false
 
 ENV HOME=/home/user \
     PATH=/home/user/.venv/bin:/usr/local/bin:$PATH \
@@ -113,7 +114,17 @@ WORKDIR $HOME
 COPY --chown=user:user pyproject.toml uv.lock ./
 COPY --chown=user:user language language/
 COPY --chown=user:user server/ server/
+
+# Conditionally copy models if INCLUDE_MODELS is true
+# Copy directly to final location - no intermediate layer to avoid duplication
+# The Makefile ensures models directory exists (empty if INCLUDE_MODELS=false)
 COPY --chown=user:user models/. /home/user/.cache/huggingface/
+RUN if [ "$INCLUDE_MODELS" != "true" ] || [ -z "$$(ls -A /home/user/.cache/huggingface 2>/dev/null)" ]; then \
+        echo "Removing models (INCLUDE_MODELS=$INCLUDE_MODELS)"; \
+        rm -rf /home/user/.cache/huggingface/* /home/user/.cache/huggingface/.[!.]*; \
+    else \
+        echo "Models included successfully"; \
+    fi
 
 # Install dependencies with CUDA support (fasttext will be compiled here)
 ENV UV_LINK_MODE=copy \
