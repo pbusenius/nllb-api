@@ -138,6 +138,15 @@ class Translator(TranslatorProtocol):
         -------
         token_indices (Iterator[int]) : the translated tokens indices
         """
+        input_length = len(text)
+        logger.debug(
+            "Starting translation generation",
+            input_length=input_length,
+            source_language=source_language,
+            target_language=target_language,
+            text_preview=text[:100] + "..." if len(text) > 100 else text,
+        )
+        
         target_prefix = (target_language,)
         results = self.translator.generate_tokens(
             (source_language, *self.tokeniser.encode(text).tokens),
@@ -151,7 +160,33 @@ class Translator(TranslatorProtocol):
         # Include all tokens, including the last one
         # is_last indicates the final token of the generation, which we need to include
         # Filtering it out was causing truncation in single translations
-        return (result.token_id for result in results)
+        token_count = 0
+        is_last_count = 0
+        last_is_last = False
+        
+        def token_generator():
+            nonlocal token_count, is_last_count, last_is_last
+            for result in results:
+                token_count += 1
+                if result.is_last:
+                    is_last_count += 1
+                    last_is_last = True
+                    logger.debug(
+                        "Encountered is_last=True token",
+                        token_id=result.token_id,
+                        step=result.step,
+                        token_count=token_count,
+                    )
+                yield result.token_id
+            
+            logger.debug(
+                "Translation generation complete",
+                total_tokens=token_count,
+                is_last_tokens=is_last_count,
+                last_was_is_last=last_is_last,
+            )
+        
+        return token_generator()
 
     def translate_batch(
         self,
@@ -186,13 +221,33 @@ class Translator(TranslatorProtocol):
         # Use translate_generator for each item to ensure consistent behavior with single translation
         # This avoids word splitting issues that occur with translate_batch's hypotheses decoding
         # While this is slightly less efficient than true batch processing, it guarantees correct output
+        logger.debug(
+            "Starting batch translation",
+            batch_size=len(texts),
+            text_lengths=[len(t) for t in texts],
+        )
+        
         decoded_texts = []
-        for text, source_lang, target_lang in zip(texts, source_languages, target_languages):
+        for idx, (text, source_lang, target_lang) in enumerate(zip(texts, source_languages, target_languages)):
             # Use the same method as single translation to ensure identical behavior
             token_ids = list(self.translate_generator(text, source_lang, target_lang))
             decoded_text = self.tokeniser.decode(token_ids, skip_special_tokens=True)
             decoded_texts.append(decoded_text)
+            
+            logger.debug(
+                "Batch item translation complete",
+                item_index=idx,
+                input_length=len(text),
+                token_count=len(token_ids),
+                output_length=len(decoded_text),
+            )
 
+        logger.debug(
+            "Batch translation complete",
+            total_items=len(decoded_texts),
+            total_output_length=sum(len(t) for t in decoded_texts),
+        )
+        
         return decoded_texts
 
     def translate(self, text: str, source_language: Language, target_language: Language) -> str:
@@ -217,7 +272,18 @@ class Translator(TranslatorProtocol):
         translated_text (str)
             the translated text
         """
-        return self.tokeniser.decode(list(self.translate_generator(text, source_language, target_language)))
+        token_ids = list(self.translate_generator(text, source_language, target_language))
+        decoded_text = self.tokeniser.decode(token_ids, skip_special_tokens=True)
+        
+        logger.debug(
+            "Translation complete",
+            input_length=len(text),
+            token_count=len(token_ids),
+            output_length=len(decoded_text),
+            output_preview=decoded_text[:100] + "..." if len(decoded_text) > 100 else decoded_text,
+        )
+        
+        return decoded_text
 
     def translate_stream(self, text: str, source_language: Language, target_language: Language) -> Iterator[str]:
         """

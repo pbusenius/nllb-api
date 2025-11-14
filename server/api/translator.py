@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sse_starlette.sse import EventSourceResponse
 
 from server.guards import requires_secret
-from server.schemas.v1 import Tokens, Translated, Translation, TranslationBatch, TranslatedBatch
+from server.schemas.v1 import Tokens, Translated, Translation, TranslationBatch, TranslationBatchItem, TranslatedBatch
 from server.typedefs import Language, get_app_state
 
 router = APIRouter()
@@ -61,7 +61,8 @@ def translator_get(
         str,
         Query(
             min_length=1,
-            description="source text of a single language",
+            max_length=2000,  # Limit GET requests to avoid URL truncation by proxies/load balancers
+            description="source text of a single language (use POST /translator for longer texts)",
             examples=["Hello, world!", "¡Hola, mundo!"],
         ),
     ],
@@ -85,6 +86,9 @@ def translator_get(
     Summary
     -------
     the GET variant of the `/translator` route
+    
+    Note: For texts longer than ~2000 characters, use POST /translator instead
+    to avoid URL length limits that may cause truncation.
     """
     return Translated(result=state.translator.translate(text, source, target))
 
@@ -120,15 +124,28 @@ def translator_batch(
     )
 
 
-@router.post("/translator", tags=["API"], response_model=Translated, status_code=status.HTTP_200_OK, deprecated=True)
+@router.post("/translator", tags=["API"], response_model=Translated, status_code=status.HTTP_200_OK)
 def translator_post(
-    data: Translation,
+    data: TranslationBatchItem,
     state=Depends(get_app_state),
 ) -> Translated:
     """
     Summary
     -------
-    the POST variant of the `/translator` route
+    translate a single text using POST (recommended for long texts to avoid URL length limits)
+    
+    This endpoint uses the same schema as batch translation items for consistency.
+    Use this instead of GET /translator for texts longer than ~2000 characters.
+
+    Parameters
+    ----------
+    data (TranslationBatchItem)
+        translation request containing text, source, and target language
+
+    Returns
+    -------
+    Translated
+        translated text result
     """
     return Translated(result=state.translator.translate(data.text, data.source, data.target))
 
