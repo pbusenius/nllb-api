@@ -148,7 +148,10 @@ class Translator(TranslatorProtocol):
             suppress_sequences=(target_prefix,),
         )
 
-        return (result.token_id for result in results if not result.is_last)
+        # Include all tokens, including the last one
+        # is_last indicates the final token of the generation, which we need to include
+        # Filtering it out was causing truncation in single translations
+        return (result.token_id for result in results)
 
     def translate_batch(
         self,
