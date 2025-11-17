@@ -158,10 +158,9 @@ class Translator(TranslatorProtocol):
         target_prefix = (target_language,)
         # Calculate minimum decoding length based on input length to prevent early stopping
         # NLLB models can stop early - see: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6
-        # Use a higher ratio to ensure we generate enough tokens for complete translation
+        # Use the specified percentage of input tokens as minimum decoding length
         input_tokens = len(self.tokeniser.encode(text).tokens)
-        # Use specified percentage of input tokens as minimum, or at least 100 tokens for longer texts
-        min_decoding_length = max(100, int(input_tokens * min_length_percentage))
+        min_decoding_length = max(1, int(input_tokens * min_length_percentage))
         
         results = self.translator.generate_tokens(
             (source_language, *self.tokeniser.encode(text).tokens),
@@ -209,7 +208,7 @@ class Translator(TranslatorProtocol):
         texts: list[str],
         source_languages: list[Language],
         target_languages: list[Language],
-        min_length_percentage: float = 0.8,
+        min_length_percentages: list[float] | None = None,
     ) -> list[str]:
         """
         Summary
@@ -227,9 +226,11 @@ class Translator(TranslatorProtocol):
         target_languages (list[Language])
             list of target languages corresponding to each text
 
-        min_length_percentage (float)
-            minimum decoding length as percentage of input tokens (0.0-1.0).
-            Defaults to 0.8 (80%). Used to prevent early stopping in NLLB models.
+        min_length_percentages (list[float] | None)
+            minimum decoding length as percentage of input tokens (0.0-1.0) for each text.
+            If None, defaults to 0.8 (80%) for all items. Each item uses its own percentage
+            and token count to compute the minimum decoding length.
+            Used to prevent early stopping in NLLB models.
             See: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6
 
         Returns
@@ -240,6 +241,17 @@ class Translator(TranslatorProtocol):
         if not texts:
             return []
 
+        # Default to 0.8 for all items if not provided
+        if min_length_percentages is None:
+            min_length_percentages = [0.8] * len(texts)
+        
+        # Ensure we have the same number of percentages as texts
+        if len(min_length_percentages) != len(texts):
+            raise ValueError(
+                f"Number of min_length_percentages ({len(min_length_percentages)}) "
+                f"must match number of texts ({len(texts)})"
+            )
+
         # Use translate_generator for each item to ensure consistent behavior with single translation
         # This avoids word splitting issues that occur with translate_batch's hypotheses decoding
         # While this is slightly less efficient than true batch processing, it guarantees correct output
@@ -247,12 +259,15 @@ class Translator(TranslatorProtocol):
             "Starting batch translation",
             batch_size=len(texts),
             text_lengths=[len(t) for t in texts],
-            min_length_percentage=min_length_percentage,
+            min_length_percentages=min_length_percentages,
         )
         
         decoded_texts = []
-        for idx, (text, source_lang, target_lang) in enumerate(zip(texts, source_languages, target_languages)):
+        for idx, (text, source_lang, target_lang, min_length_percentage) in enumerate(
+            zip(texts, source_languages, target_languages, min_length_percentages)
+        ):
             # Use the same method as single translation to ensure identical behavior
+            # Each item uses its own min_length_percentage and token count
             token_ids = list(self.translate_generator(text, source_lang, target_lang, min_length_percentage))
             decoded_text = self.tokeniser.decode(token_ids, skip_special_tokens=True)
             decoded_texts.append(decoded_text)

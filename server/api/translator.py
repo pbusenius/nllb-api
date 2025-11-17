@@ -132,15 +132,16 @@ def translator_batch(
     
     Note
     ----
-    If items have different min_length_percentage values, the first item's value is used for all items.
+    Each item can specify its own min_length_percentage value. The minimum decoding length
+    is computed per item based on that item's input token count and percentage value.
     """
     texts = [item.text for item in data.translations]
     source_languages = [item.source for item in data.translations]
     target_languages = [item.target for item in data.translations]
-    # Use the first item's min_length_percentage (defaults to 0.8)
-    min_length_percentage = data.translations[0].min_length_percentage
+    # Extract min_length_percentage for each item (each defaults to 0.8)
+    min_length_percentages = [item.min_length_percentage for item in data.translations]
 
-    translated_texts = state.translator.translate_batch(texts, source_languages, target_languages, min_length_percentage)
+    translated_texts = state.translator.translate_batch(texts, source_languages, target_languages, min_length_percentages)
 
     return TranslatedBatch(
         results=[{"result": text} for text in translated_texts],

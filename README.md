@@ -74,7 +74,7 @@ curl -X POST 'http://localhost:49494/api/translator/batch' \
   }'
 ```
 
-**Note:** The `min_length_percentage` parameter is optional and defaults to 0.8 (80%) for each item. You only need to specify it if you want a different value. If items have different values, the first item's value is used for all items in the batch.
+**Note:** The `min_length_percentage` parameter is optional and defaults to 0.8 (80%) for each item. You only need to specify it if you want a different value. Each item computes its minimum decoding length independently based on its own input token count and percentage value.
 
 **Response:**
 ```json
