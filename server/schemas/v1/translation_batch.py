@@ -21,6 +21,11 @@ class TranslationBatchItem(BaseModel):
 
     target (Language)
         target language in the FLORES-200 code format
+
+    min_length_percentage (float)
+        minimum decoding length as percentage of input tokens (0.0-1.0).
+        Defaults to 0.8 (80%). Used to prevent early stopping in NLLB models.
+        See: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6
     """
 
     text: Annotated[
@@ -37,6 +42,17 @@ class TranslationBatchItem(BaseModel):
         Language,
         Field(description="target language in the FLORES-200 code format", examples=["spa_Latn"]),
     ]
+
+    min_length_percentage: Annotated[
+        float,
+        Field(
+            default=0.8,
+            ge=0.0,
+            le=1.0,
+            description="Minimum decoding length as percentage of input tokens (0.0-1.0). Defaults to 0.8 (80%). Used to prevent early stopping in NLLB models. See: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6",
+            examples=[0.8],
+        ),
+    ] = 0.8
 
 
 class TranslationBatch(BaseModel):

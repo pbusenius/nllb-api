@@ -13,6 +13,9 @@ A fast CPU and GPU-accelerated API for Meta's [No Language Left Behind](https://
 > [!IMPORTANT]\
 > NLLB was trained with input lengths not exceeding 512 tokens. Translating longer sequences might result in quality degradation. Consider splitting your input into smaller chunks if you begin observing artefacts.
 
+> [!NOTE]\
+> NLLB models can sometimes stop generation early, resulting in incomplete translations. The API uses `min_length_percentage` (default: 0.8 / 80%) to prevent this by ensuring a minimum number of output tokens based on input length. **You only need to specify this parameter if you want a value other than 0.8.** See [this discussion](https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6) for more details.
+
 ## Self-Hosting
 
 You can self-host the API and access the Swagger UI at [localhost:49494/api/schema/swagger](http://localhost:49494/api/schema/swagger) with the following minimal configuration:
@@ -46,6 +49,8 @@ curl -X POST 'http://localhost:49494/api/translator' \
   }'
 ```
 
+**Note:** The `min_length_percentage` parameter is optional and defaults to 0.8 (80%). You only need to specify it if you want a different value. This parameter controls the minimum decoding length as a percentage of input tokens to prevent early stopping in NLLB models. See [this discussion](https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6) for more details.
+
 **Response:**
 ```json
 {
@@ -69,6 +74,8 @@ curl -X POST 'http://localhost:49494/api/translator/batch' \
   }'
 ```
 
+**Note:** The `min_length_percentage` parameter is optional and defaults to 0.8 (80%) for each item. You only need to specify it if you want a different value. If items have different values, the first item's value is used for all items in the batch.
+
 **Response:**
 ```json
 {
@@ -87,6 +94,8 @@ Stream translations as Server-Sent Events:
 ```bash
 curl -N 'http://localhost:49494/api/translator/stream?text=Hello%20world&source=eng_Latn&target=spa_Latn'
 ```
+
+**Note:** The `min_length_percentage` query parameter is optional and defaults to 0.8 (80%). You only need to specify it if you want a different value.
 
 #### Language Detection
 

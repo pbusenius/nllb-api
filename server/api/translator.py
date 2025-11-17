@@ -80,6 +80,15 @@ def translator_get(
             examples=[code for code in get_args(Language.__value__)],
         ),
     ] = "spa_Latn",
+    min_length_percentage: Annotated[
+        float,
+        Query(
+            ge=0.0,
+            le=1.0,
+            description="Minimum decoding length as percentage of input tokens (0.0-1.0). Defaults to 0.8 (80%). Used to prevent early stopping in NLLB models. See: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6",
+            examples=[0.8],
+        ),
+    ] = 0.8,
     state=Depends(get_app_state),
 ) -> Translated:
     """
@@ -89,8 +98,15 @@ def translator_get(
     
     Note: For texts longer than ~2000 characters, use POST /translator instead
     to avoid URL length limits that may cause truncation.
+    
+    Parameters
+    ----------
+    min_length_percentage (float)
+        Minimum decoding length as percentage of input tokens (0.0-1.0).
+        Defaults to 0.8 (80%). Used to prevent early stopping in NLLB models.
+        See: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6
     """
-    return Translated(result=state.translator.translate(text, source, target))
+    return Translated(result=state.translator.translate(text, source, target, min_length_percentage))
 
 
 @router.post("/translator/batch", tags=["API"], response_model=TranslatedBatch, status_code=status.HTTP_200_OK)
@@ -106,18 +122,25 @@ def translator_batch(
     Parameters
     ----------
     data (TranslationBatch)
-        batch translation request containing list of translation items
+        batch translation request containing list of translation items.
+        Each item can optionally specify min_length_percentage to control minimum decoding length.
 
     Returns
     -------
     TranslatedBatch
         batch translation response containing list of translated texts in the same order as input
+    
+    Note
+    ----
+    If items have different min_length_percentage values, the first item's value is used for all items.
     """
     texts = [item.text for item in data.translations]
     source_languages = [item.source for item in data.translations]
     target_languages = [item.target for item in data.translations]
+    # Use the first item's min_length_percentage (defaults to 0.8)
+    min_length_percentage = data.translations[0].min_length_percentage
 
-    translated_texts = state.translator.translate_batch(texts, source_languages, target_languages)
+    translated_texts = state.translator.translate_batch(texts, source_languages, target_languages, min_length_percentage)
 
     return TranslatedBatch(
         results=[{"result": text} for text in translated_texts],
@@ -140,14 +163,14 @@ def translator_post(
     Parameters
     ----------
     data (TranslationBatchItem)
-        translation request containing text, source, and target language
+        translation request containing text, source, target language, and optional min_length_percentage
 
     Returns
     -------
     Translated
         translated text result
     """
-    return Translated(result=state.translator.translate(data.text, data.source, data.target))
+    return Translated(result=state.translator.translate(data.text, data.source, data.target, data.min_length_percentage))
 
 
 @router.get("/translator/stream", tags=["API"])
@@ -175,6 +198,15 @@ def translator_stream(
             examples=[code for code in get_args(Language.__value__)],
         ),
     ] = "spa_Latn",
+    min_length_percentage: Annotated[
+        float,
+        Query(
+            ge=0.0,
+            le=1.0,
+            description="Minimum decoding length as percentage of input tokens (0.0-1.0). Defaults to 0.8 (80%). Used to prevent early stopping in NLLB models. See: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6",
+            examples=[0.8],
+        ),
+    ] = 0.8,
     event_type: Annotated[str | None, Query(description="the event that an event listener will listen for")] = None,
     state=Depends(get_app_state),
 ) -> EventSourceResponse:
@@ -182,9 +214,16 @@ def translator_stream(
     Summary
     -------
     the `/translator/stream` returns a Server-Sent Event stream of the translation
+    
+    Parameters
+    ----------
+    min_length_percentage (float)
+        Minimum decoding length as percentage of input tokens (0.0-1.0).
+        Defaults to 0.8 (80%). Used to prevent early stopping in NLLB models.
+        See: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6
     """
     async def generate():
-        for chunk in state.translator.translate_stream(text, source, target):
+        for chunk in state.translator.translate_stream(text, source, target, min_length_percentage):
             yield {"event": event_type, "data": chunk} if event_type else {"data": chunk}
 
     return EventSourceResponse(generate())

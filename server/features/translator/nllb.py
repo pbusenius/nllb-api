@@ -117,7 +117,9 @@ class Translator(TranslatorProtocol):
         """
         return len(self.tokeniser.encode(text)) + 1
 
-    def translate_generator(self, text: str, source_language: Language, target_language: Language) -> Iterator[int]:
+    def translate_generator(
+        self, text: str, source_language: Language, target_language: Language, min_length_percentage: float = 0.8
+    ) -> Iterator[int]:
         """
         Summary
         -------
@@ -134,6 +136,11 @@ class Translator(TranslatorProtocol):
         target_language (Languages)
             the target languages
 
+        min_length_percentage (float)
+            minimum decoding length as percentage of input tokens (0.0-1.0).
+            Defaults to 0.8 (80%). Used to prevent early stopping in NLLB models.
+            See: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6
+
         Returns
         -------
         token_indices (Iterator[int]) : the translated tokens indices
@@ -144,14 +151,23 @@ class Translator(TranslatorProtocol):
             input_length=input_length,
             source_language=source_language,
             target_language=target_language,
+            min_length_percentage=min_length_percentage,
             text_preview=text[:100] + "..." if len(text) > 100 else text,
         )
         
         target_prefix = (target_language,)
+        # Calculate minimum decoding length based on input length to prevent early stopping
+        # NLLB models can stop early - see: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6
+        # Use a higher ratio to ensure we generate enough tokens for complete translation
+        input_tokens = len(self.tokeniser.encode(text).tokens)
+        # Use specified percentage of input tokens as minimum, or at least 100 tokens for longer texts
+        min_decoding_length = max(100, int(input_tokens * min_length_percentage))
+        
         results = self.translator.generate_tokens(
             (source_language, *self.tokeniser.encode(text).tokens),
             target_prefix,
             max_decoding_length=4096,
+            min_decoding_length=min_decoding_length,
             sampling_temperature=0,
             no_repeat_ngram_size=3,
             suppress_sequences=(target_prefix,),
@@ -193,6 +209,7 @@ class Translator(TranslatorProtocol):
         texts: list[str],
         source_languages: list[Language],
         target_languages: list[Language],
+        min_length_percentage: float = 0.8,
     ) -> list[str]:
         """
         Summary
@@ -210,6 +227,11 @@ class Translator(TranslatorProtocol):
         target_languages (list[Language])
             list of target languages corresponding to each text
 
+        min_length_percentage (float)
+            minimum decoding length as percentage of input tokens (0.0-1.0).
+            Defaults to 0.8 (80%). Used to prevent early stopping in NLLB models.
+            See: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6
+
         Returns
         -------
         translated_texts (list[str])
@@ -225,12 +247,13 @@ class Translator(TranslatorProtocol):
             "Starting batch translation",
             batch_size=len(texts),
             text_lengths=[len(t) for t in texts],
+            min_length_percentage=min_length_percentage,
         )
         
         decoded_texts = []
         for idx, (text, source_lang, target_lang) in enumerate(zip(texts, source_languages, target_languages)):
             # Use the same method as single translation to ensure identical behavior
-            token_ids = list(self.translate_generator(text, source_lang, target_lang))
+            token_ids = list(self.translate_generator(text, source_lang, target_lang, min_length_percentage))
             decoded_text = self.tokeniser.decode(token_ids, skip_special_tokens=True)
             decoded_texts.append(decoded_text)
             
@@ -250,7 +273,9 @@ class Translator(TranslatorProtocol):
         
         return decoded_texts
 
-    def translate(self, text: str, source_language: Language, target_language: Language) -> str:
+    def translate(
+        self, text: str, source_language: Language, target_language: Language, min_length_percentage: float = 0.8
+    ) -> str:
         """
         Summary
         -------
@@ -267,12 +292,17 @@ class Translator(TranslatorProtocol):
         target_language (Languages)
             the target language
 
+        min_length_percentage (float)
+            minimum decoding length as percentage of input tokens (0.0-1.0).
+            Defaults to 0.8 (80%). Used to prevent early stopping in NLLB models.
+            See: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6
+
         Returns
         -------
         translated_text (str)
             the translated text
         """
-        token_ids = list(self.translate_generator(text, source_language, target_language))
+        token_ids = list(self.translate_generator(text, source_language, target_language, min_length_percentage))
         decoded_text = self.tokeniser.decode(token_ids, skip_special_tokens=True)
         
         logger.debug(
@@ -285,7 +315,9 @@ class Translator(TranslatorProtocol):
         
         return decoded_text
 
-    def translate_stream(self, text: str, source_language: Language, target_language: Language) -> Iterator[str]:
+    def translate_stream(
+        self, text: str, source_language: Language, target_language: Language, min_length_percentage: float = 0.8
+    ) -> Iterator[str]:
         """
         Summary
         -------
@@ -302,6 +334,11 @@ class Translator(TranslatorProtocol):
         target_language (Languages)
             the target language
 
+        min_length_percentage (float)
+            minimum decoding length as percentage of input tokens (0.0-1.0).
+            Defaults to 0.8 (80%). Used to prevent early stopping in NLLB models.
+            See: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6
+
         Returns
         -------
         translated_text (Iterator[str])
@@ -310,7 +347,7 @@ class Translator(TranslatorProtocol):
 
         return (
             self.tokeniser.decode((token,))
-            for token in self.translate_generator(text, source_language, target_language)
+            for token in self.translate_generator(text, source_language, target_language, min_length_percentage)
         )
 
 

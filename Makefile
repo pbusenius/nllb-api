@@ -4,6 +4,7 @@
 IMAGE_NAME := pbusenius/nllb-api
 OFFLINE_IMAGE_NAME := pbusenius/offline-nllb-api
 TAG ?= latest
+VERSION ?= 0.1
 DOCKERFILE := Dockerfile
 DOCKERFILE_CUDA := Dockerfile.cuda
 
@@ -21,6 +22,7 @@ help:
 	@echo ""
 	@echo "Variables:"
 	@echo "  TAG                   - Image tag (default: latest)"
+	@echo "  VERSION               - Version tag (default: 0.1)"
 	@echo "  IMAGE_NAME            - Image name (default: pbusenius/nllb-api)"
 	@echo "  OFFLINE_IMAGE_NAME    - Offline image name (default: pbusenius/offline-nllb-api)"
 	@echo "  PORT                  - Server port (default: 49494)"
@@ -73,15 +75,21 @@ docker-run-cuda:
 
 # Push Docker image to registry
 docker-push: docker-build
+	docker tag $(IMAGE_NAME):$(TAG) $(IMAGE_NAME):$(VERSION)
 	docker push $(IMAGE_NAME):$(TAG)
+	docker push $(IMAGE_NAME):$(VERSION)
 
 # Push CUDA Docker image to registry
 docker-push-cuda: docker-build-cuda
+	docker tag $(IMAGE_NAME):$(TAG) $(IMAGE_NAME):$(VERSION)
 	docker push $(IMAGE_NAME):$(TAG)
+	docker push $(IMAGE_NAME):$(VERSION)
 
 # Push offline CUDA Docker image to registry
 docker-push-cuda-offline: docker-build-cuda-offline
+	docker tag $(OFFLINE_IMAGE_NAME):$(TAG) $(OFFLINE_IMAGE_NAME):$(VERSION)
 	docker push $(OFFLINE_IMAGE_NAME):$(TAG)
+	docker push $(OFFLINE_IMAGE_NAME):$(VERSION)
 
 # Clean up Docker build cache and intermediate stages
 docker-clean:
