@@ -16,7 +16,7 @@ def main() -> None:
     try:
         # Download translation model
         print("Downloading translation model...")
-        translation_path = snapshot_download("winstxnhdw/nllb-200-distilled-1.3B-ct2-int8", cache_dir=cache_dir)
+        translation_path = snapshot_download("OpenNMT/nllb-200-3.3B-ct2-int8", cache_dir=cache_dir)
         print(f"Translation model downloaded to: {translation_path}")
 
         # Download language detection model
@@ -36,19 +36,19 @@ def main() -> None:
         os.makedirs(models_dir)
         
         # Copy only the specific model directories we need
-        # Translation model: winstxnhdw/nllb-200-distilled-1.3B-ct2-int8
+        # Translation model: OpenNMT/nllb-200-3.3B-ct2-int8
         # Check both hub/ format and legacy format
-        translation_model_cache_hub = os.path.join(cache_dir, "hub", "models--winstxnhdw--nllb-200-distilled-1.3B-ct2-int8")
-        translation_model_cache_legacy = os.path.join(cache_dir, "models--winstxnhdw--nllb-200-distilled-1.3B-ct2-int8")
+        translation_model_cache_hub = os.path.join(cache_dir, "hub", "models--OpenNMT--nllb-200-3.3B-ct2-int8")
+        translation_model_cache_legacy = os.path.join(cache_dir, "models--OpenNMT--nllb-200-3.3B-ct2-int8")
         
         if os.path.exists(translation_model_cache_hub):
             print(f"Copying translation model from {translation_model_cache_hub}...")
             os.makedirs(os.path.join(models_dir, "hub"), exist_ok=True)
-            shutil.copytree(translation_model_cache_hub, os.path.join(models_dir, "hub", "models--winstxnhdw--nllb-200-distilled-1.3B-ct2-int8"))
+            shutil.copytree(translation_model_cache_hub, os.path.join(models_dir, "hub", "models--OpenNMT--nllb-200-3.3B-ct2-int8"))
             print("Translation model copied successfully")
         elif os.path.exists(translation_model_cache_legacy):
             print(f"Copying translation model from {translation_model_cache_legacy}...")
-            shutil.copytree(translation_model_cache_legacy, os.path.join(models_dir, "models--winstxnhdw--nllb-200-distilled-1.3B-ct2-int8"))
+            shutil.copytree(translation_model_cache_legacy, os.path.join(models_dir, "models--OpenNMT--nllb-200-3.3B-ct2-int8"))
             print("Translation model copied successfully")
         else:
             print(f"ERROR: Translation model not found at {translation_model_cache_hub} or {translation_model_cache_legacy}", file=sys.stderr)

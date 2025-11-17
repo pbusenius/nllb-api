@@ -3,6 +3,14 @@ from uuid import uuid4
 from pydantic_settings import BaseSettings
 
 
+# Model size presets mapping to OpenNMT repositories
+MODEL_SIZE_PRESETS = {
+    "small": "OpenNMT/nllb-200-distilled-600M-ct2-int8",
+    "medium": "OpenNMT/nllb-200-distilled-1.3B-ct2-int8",
+    "large": "OpenNMT/nllb-200-3.3B-ct2-int8",
+}
+
+
 class Config(BaseSettings):
     """
     Summary
@@ -108,7 +116,8 @@ class Config(BaseSettings):
     worker_count: int = 1
     auth_token: str = str(uuid4())
 
-    translator_repository: str = "winstxnhdw/nllb-200-distilled-1.3B-ct2-int8"
+    model_size: str | None = None  # Can be set to "small", "medium", or "large" via MODEL_SIZE env var
+    translator_repository: str | None = None  # Can be explicitly set via TRANSLATOR_REPOSITORY env var (overrides MODEL_SIZE)
     translator_threads: int = 1
     stub_translator: bool = False
     testing: bool = False
@@ -140,3 +149,28 @@ class Config(BaseSettings):
     consul_service_address: str | None = None
     consul_service_port: int = 443
     consul_service_scheme: str = "https"
+
+    def get_translator_repository(self) -> str:
+        """
+        Get the translator repository, resolving MODEL_SIZE if TRANSLATOR_REPOSITORY is not explicitly set.
+        
+        Priority:
+        1. TRANSLATOR_REPOSITORY env var (if set)
+        2. MODEL_SIZE preset (if MODEL_SIZE env var is set)
+        3. Default to "medium" (1.3B model)
+        
+        Returns
+        -------
+        str
+            The translator repository to use
+        """
+        # If TRANSLATOR_REPOSITORY is explicitly set, use it (highest priority)
+        if self.translator_repository:
+            return self.translator_repository
+        
+        # If MODEL_SIZE is set, use the preset
+        if self.model_size and self.model_size.lower() in MODEL_SIZE_PRESETS:
+            return MODEL_SIZE_PRESETS[self.model_size.lower()]
+        
+        # Default fallback to medium (1.3B)
+        return MODEL_SIZE_PRESETS["medium"]

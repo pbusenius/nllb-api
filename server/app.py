@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI):
         stub=config.stub_language_detector,
     )(app):
         async with load_translator_model(
-            config.translator_repository,
+            config.get_translator_repository(),
             translator_threads=config.translator_threads,
             stub=config.stub_translator,
             testing=config.testing,

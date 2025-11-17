@@ -154,14 +154,36 @@ docker run --rm \
 
 ### Optimisation
 
-You can pass the following environment variables to optimise the API for your own uses. The value of `OMP_NUM_THREADS` increases the number of threads used to translate a given batch of inputs, while `TRANSLATOR_THREADS` increases the number of threads used to handle translate requests in parallel. It is recommended to not modify `WORKER_COUNT` as spawning multiple workers can lead to increased memory usage and poorer performance.
+You can pass the following environment variables to optimise the API for your own uses:
+
+- `MODEL_SIZE`: Model size preset - `small` (600M), `medium` (1.3B), or `large` (3.3B). Defaults to `medium` if not set.
+  - `small`: `OpenNMT/nllb-200-distilled-600M-ct2-int8` - Fastest, smallest model
+  - `medium`: `OpenNMT/nllb-200-distilled-1.3B-ct2-int8` - Balanced speed and quality
+  - `large`: `OpenNMT/nllb-200-3.3B-ct2-int8` - Best quality, slower inference
+- `TRANSLATOR_REPOSITORY`: Explicit Hugging Face model repository (overrides `MODEL_SIZE`). Must be a CTranslate2-compatible NLLB model.
+- `OMP_NUM_THREADS`: Increases the number of threads used to translate a given batch of inputs.
+- `TRANSLATOR_THREADS`: Increases the number of threads used to handle translate requests in parallel.
+
+It is recommended to not modify `WORKER_COUNT` as spawning multiple workers can lead to increased memory usage and poorer performance.
 
 > [!IMPORTANT]\
 > `OMP_NUM_THREADS` $\times$ `TRANSLATOR_THREADS` should not exceed the physical number of cores on your machine.
 
 ```bash
+# Using MODEL_SIZE preset (recommended)
 docker run --rm \
   -e SERVER_PORT=49494 \
+  -e MODEL_SIZE=medium \
+  -e OMP_NUM_THREADS=6 \
+  -e TRANSLATOR_THREADS=2 \
+  -e WORKER_COUNT=1 \
+  -p 49494:49494 \
+  pbusenius/nllb-api:main
+
+# Or using explicit TRANSLATOR_REPOSITORY
+docker run --rm \
+  -e SERVER_PORT=49494 \
+  -e TRANSLATOR_REPOSITORY="OpenNMT/nllb-200-distilled-1.3B-ct2-int8" \
   -e OMP_NUM_THREADS=6 \
   -e TRANSLATOR_THREADS=2 \
   -e WORKER_COUNT=1 \

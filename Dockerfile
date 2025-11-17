@@ -11,7 +11,7 @@ RUN if [ "$DOWNLOAD_MODELS" = "true" ]; then \
         python -c "from huggingface_hub import snapshot_download, hf_hub_download; \
         import os, sys; \
         try: \
-            snapshot_download('winstxnhdw/nllb-200-distilled-1.3B-ct2-int8'); \
+            snapshot_download('OpenNMT/nllb-200-3.3B-ct2-int8'); \
             hf_hub_download('facebook/fasttext-language-identification', 'model.bin'); \
         except Exception as e: \
             print(f'Warning: Model download failed: {e}', file=sys.stderr); \
