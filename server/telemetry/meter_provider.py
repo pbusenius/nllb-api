@@ -116,6 +116,8 @@ def get_meter_provider(
             "By",
             "System filesystem usage",
         )
+        # Note: GPU metrics are provided by DCGM exporter in Kubernetes
+        # and are queried directly from Prometheus (see grafana-dashboard.json)
 
     set_meter_provider(meter_provider)
 
