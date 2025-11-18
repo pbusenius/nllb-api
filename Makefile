@@ -4,7 +4,7 @@
 IMAGE_NAME := pbusenius/nllb-api
 OFFLINE_IMAGE_NAME := pbusenius/offline-nllb-api
 TAG ?= latest
-VERSION ?= 0.1.5
+VERSION ?= 0.1.6
 DOCKERFILE := Dockerfile
 DOCKERFILE_CUDA := Dockerfile.cuda
 
