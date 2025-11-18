@@ -40,15 +40,30 @@ def exception_handler(request: Request, exc: Exception) -> JSONResponse:
         the error response
     """
     logger = get_logger("nllb-api")
+    # Log full exception details including traceback
     logger.error(
         "Unhandled exception",
         exc_info=exc,
         path=request.url.path,
         method=request.method,
         status_code=500,
+        exception_type=type(exc).__name__,
+        exception_message=str(exc),
     )
+    
+    # Include exception details in response for debugging (can be disabled in production)
+    import traceback
+    error_detail = str(exc)
+    if hasattr(exc, "__traceback__"):
+        tb_str = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        logger.error("Exception traceback", traceback=tb_str)
+    
     return JSONResponse(
-        content={"detail": "Internal Server Error"},
+        content={
+            "detail": "Internal Server Error",
+            "error": error_detail,
+            "error_type": type(exc).__name__,
+        },
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
     )
 

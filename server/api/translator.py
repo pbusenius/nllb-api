@@ -112,6 +112,7 @@ def translator_get(
 @router.post("/translator/batch", tags=["API"], response_model=TranslatedBatch, status_code=status.HTTP_200_OK)
 def translator_batch(
     data: TranslationBatch,
+    request: Request,
     state=Depends(get_app_state),
 ) -> TranslatedBatch:
     """
@@ -135,6 +136,31 @@ def translator_batch(
     Each item can specify its own min_length_percentage value. The minimum decoding length
     is computed per item based on that item's input token count and percentage value.
     """
+    from opentelemetry import metrics, trace
+    
+    batch_size = len(data.translations)
+    
+    # Add batch size as span attribute for monitoring
+    span = trace.get_current_span()
+    if span:
+        span.set_attribute("batch.size", batch_size)
+        span.set_attribute("http.request.batch_size", batch_size)
+    
+    # Record batch size as a histogram metric for monitoring
+    meter = metrics.get_meter(__name__)
+    batch_size_histogram = meter.create_histogram(
+        name="nllb_api_batch_size",
+        description="Batch size distribution for translation requests",
+        unit="1",
+    )
+    batch_size_histogram.record(
+        batch_size,
+        attributes={
+            "endpoint": "/translator/batch",
+            "batch_size_bucket": f"{batch_size}",
+        },
+    )
+    
     texts = [item.text for item in data.translations]
     source_languages = [item.source for item in data.translations]
     target_languages = [item.target for item in data.translations]

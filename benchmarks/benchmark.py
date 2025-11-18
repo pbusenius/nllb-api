@@ -27,6 +27,16 @@ import httpx
 from benchmarks.flores_data import get_flores_samples, get_flores_by_domain
 
 
+class BenchmarkError(Exception):
+    """Exception raised when a non-200 status code is encountered."""
+    
+    def __init__(self, status_code: int, error_detail: str, request_info: dict[str, Any]):
+        self.status_code = status_code
+        self.error_detail = error_detail
+        self.request_info = request_info
+        super().__init__(f"HTTP {status_code}: {error_detail}")
+
+
 class BenchmarkResult:
     """Results from a benchmark run."""
 
@@ -131,27 +141,58 @@ async def _single_request(
                 },
             )
             request_end = time.time()
-            response.raise_for_status()
+            
+            # Check status code explicitly - stop benchmark if not 200
+            if response.status_code != 200:
+                error_detail = str(response.text)
+                try:
+                    error_json = response.json()
+                    if isinstance(error_json, dict):
+                        error_detail = error_json.get("detail", error_json.get("message", error_detail))
+                except Exception:
+                    pass
+                
+                request_info = {
+                    "text": item["text"][:50] + "..." if len(item["text"]) > 50 else item["text"],
+                    "source": item["source"],
+                    "target": item["target"],
+                    "status": response.status_code,
+                    "error": error_detail,
+                }
+                raise BenchmarkError(response.status_code, error_detail, request_info)
+            
             return request_end - request_start, None
+        except BenchmarkError:
+            # Re-raise BenchmarkError to stop the benchmark
+            raise
         except httpx.HTTPStatusError as e:
             request_end = time.time()
-            error_info = {
+            error_detail = str(e)
+            try:
+                error_json = e.response.json()
+                if isinstance(error_json, dict):
+                    error_detail = error_json.get("detail", error_json.get("message", str(e)))
+            except Exception:
+                pass
+            
+            request_info = {
                 "text": item["text"][:50] + "..." if len(item["text"]) > 50 else item["text"],
                 "source": item["source"],
                 "target": item["target"],
                 "status": e.response.status_code,
-                "error": str(e),
+                "error": error_detail,
             }
-            return request_end - request_start, error_info
+            raise BenchmarkError(e.response.status_code, error_detail, request_info)
         except Exception as e:
             request_end = time.time()
-            error_info = {
+            request_info = {
                 "text": item["text"][:50] + "..." if len(item["text"]) > 50 else item["text"],
                 "source": item["source"],
                 "target": item["target"],
                 "error": str(e),
             }
-            return request_end - request_start, error_info
+            # Treat other exceptions as 500 errors
+            raise BenchmarkError(500, str(e), request_info)
 
 
 async def benchmark_single(
@@ -176,13 +217,26 @@ async def benchmark_single(
     ]
 
     # Execute all requests concurrently
-    results = await asyncio.gather(*tasks)
+    # If any request fails with non-200, BenchmarkError will be raised
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    except BenchmarkError as e:
+        # This shouldn't happen with return_exceptions=True, but handle it anyway
+        raise
 
-    # Process results
-    for latency, error_info in results:
-        latencies.append(latency)
-        if error_info:
-            errors.append(error_info)
+    # Process results - check for BenchmarkError exceptions
+    for idx, result in enumerate(results):
+        if isinstance(result, BenchmarkError):
+            # Stop benchmark on first error
+            raise result
+        elif isinstance(result, Exception):
+            # Other exceptions should have been converted to BenchmarkError
+            raise BenchmarkError(500, str(result), {"item_index": idx})
+        else:
+            latency, error_info = result
+            latencies.append(latency)
+            if error_info:
+                errors.append(error_info)
 
     total_time = time.time() - start_time
 
@@ -214,11 +268,38 @@ async def _batch_request(
                 json=batch_request,
             )
             request_end = time.time()
-            response.raise_for_status()
-
+            
+            # Check status code explicitly - stop benchmark if not 200
+            if response.status_code != 200:
+                error_detail = response.text or f"HTTP {response.status_code}"
+                try:
+                    error_json = response.json()
+                    if isinstance(error_json, dict):
+                        error_detail = error_json.get("detail", error_json.get("message", error_detail))
+                        # Include full error JSON if available
+                        if error_json:
+                            error_detail = f"{error_detail}\nFull error: {error_json}"
+                except Exception:
+                    # If JSON parsing fails, use text response
+                    if response.text:
+                        error_detail = response.text[:500]  # Limit length
+                
+                request_info = {
+                    "batch_start": batch_start,
+                    "batch_size": len(batch),
+                    "status": response.status_code,
+                    "error": error_detail,
+                    "language_pairs": [(item["source"], item["target"]) for item in batch],
+                    "sample_texts": [item["text"][:50] + "..." if len(item["text"]) > 50 else item["text"] for item in batch[:3]],
+                }
+                raise BenchmarkError(response.status_code, error_detail, request_info)
+            
             # Latency per item in batch
             batch_latency = (request_end - request_start) / len(batch)
             return batch_latency, len(batch), None
+        except BenchmarkError:
+            # Re-raise BenchmarkError to stop the benchmark
+            raise
         except httpx.HTTPStatusError as e:
             request_end = time.time()
             # Try to get error details from response
@@ -230,25 +311,24 @@ async def _batch_request(
             except Exception:
                 pass
             
-            error_info = {
+            request_info = {
                 "batch_start": batch_start,
                 "batch_size": len(batch),
                 "status": e.response.status_code,
                 "error": error_detail,
                 "language_pairs": [(item["source"], item["target"]) for item in batch],
             }
-            batch_latency = (request_end - request_start) / len(batch)
-            return batch_latency, len(batch), error_info
+            raise BenchmarkError(e.response.status_code, error_detail, request_info)
         except Exception as e:
             request_end = time.time()
-            error_info = {
+            request_info = {
                 "batch_start": batch_start,
                 "batch_size": len(batch),
                 "error": str(e),
                 "language_pairs": [(item["source"], item["target"]) for item in batch],
             }
-            batch_latency = (request_end - request_start) / len(batch)
-            return batch_latency, len(batch), error_info
+            # Treat other exceptions as 500 errors
+            raise BenchmarkError(500, str(e), request_info)
 
 
 async def benchmark_batch(
@@ -279,13 +359,26 @@ async def benchmark_batch(
     ]
 
     # Execute all batch requests concurrently
-    results = await asyncio.gather(*tasks)
+    # If any request fails with non-200, BenchmarkError will be raised
+    try:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    except BenchmarkError as e:
+        # This shouldn't happen with return_exceptions=True, but handle it anyway
+        raise
 
-    # Process results
-    for batch_latency, batch_len, error_info in results:
-        latencies.extend([batch_latency] * batch_len)
-        if error_info:
-            errors.append(error_info)
+    # Process results - check for BenchmarkError exceptions
+    for idx, result in enumerate(results):
+        if isinstance(result, BenchmarkError):
+            # Stop benchmark on first error
+            raise result
+        elif isinstance(result, Exception):
+            # Other exceptions should have been converted to BenchmarkError
+            raise BenchmarkError(500, str(result), {"batch_index": idx})
+        else:
+            batch_latency, batch_len, error_info = result
+            latencies.extend([batch_latency] * batch_len)
+            if error_info:
+                errors.append(error_info)
 
     total_time = time.time() - start_time
 
@@ -381,30 +474,53 @@ async def run_benchmark(
     print()
 
     async with httpx.AsyncClient(timeout=300.0) as client:
-        # Warmup
-        if warmup > 0:
-            print(f"Warming up with {warmup} requests...")
-            warmup_data = test_data[:warmup]
-            if not batch_only:
-                await benchmark_single(client, base_url, warmup_data, workers=workers)
-            await benchmark_batch(client, base_url, warmup_data, min(effective_batch_size, warmup), workers=workers)
-            print("Warmup complete.\n")
+        try:
+            # Warmup
+            if warmup > 0:
+                print(f"Warming up with {warmup} requests...")
+                warmup_data = test_data[:warmup]
+                if not batch_only:
+                    await benchmark_single(client, base_url, warmup_data, workers=workers)
+                await benchmark_batch(client, base_url, warmup_data, min(effective_batch_size, warmup), workers=workers)
+                print("Warmup complete.\n")
 
-        # Run benchmarks
-        single_results = []
-        batch_results = []
+            # Run benchmarks
+            single_results = []
+            batch_results = []
 
-        for iteration in range(iterations):
-            print(f"Iteration {iteration + 1}/{iterations}...")
+            for iteration in range(iterations):
+                print(f"Iteration {iteration + 1}/{iterations}...")
 
-            # Single translation benchmark (skip if batch_only)
-            if not batch_only:
-                single_result = await benchmark_single(client, base_url, test_data, workers=workers)
-                single_results.append(single_result)
+                # Single translation benchmark (skip if batch_only)
+                if not batch_only:
+                    single_result = await benchmark_single(client, base_url, test_data, workers=workers)
+                    single_results.append(single_result)
 
-            # Batch translation benchmark
-            batch_result = await benchmark_batch(client, base_url, test_data, effective_batch_size, workers=workers)
-            batch_results.append(batch_result)
+                # Batch translation benchmark
+                batch_result = await benchmark_batch(client, base_url, test_data, effective_batch_size, workers=workers)
+                batch_results.append(batch_result)
+        except BenchmarkError as e:
+            # Stop benchmark and show error details
+            print("\n" + "=" * 60)
+            print("❌ BENCHMARK STOPPED - Non-200 Status Code Detected")
+            print("=" * 60)
+            print(f"\nStatus Code: {e.status_code}")
+            print(f"\nError Details:")
+            print(f"  {e.error_detail}")
+            print(f"\nRequest Details:")
+            for key, value in e.request_info.items():
+                if key == "language_pairs" and isinstance(value, list):
+                    print(f"  {key}: {value[:5]}..." if len(value) > 5 else f"  {key}: {value}")
+                elif key == "sample_texts" and isinstance(value, list):
+                    print(f"  {key}: {value}")
+                elif key == "error":
+                    # Error already shown above
+                    continue
+                else:
+                    print(f"  {key}: {value}")
+            print("\n" + "=" * 60)
+            import sys
+            sys.exit(1)
 
         # Aggregate results
         print("\n" + "=" * 60)

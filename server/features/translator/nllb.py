@@ -228,8 +228,8 @@ class Translator(TranslatorProtocol):
 
         min_length_percentages (list[float] | None)
             minimum decoding length as percentage of input tokens (0.0-1.0) for each text.
-            If None, defaults to 0.8 (80%) for all items. Each item uses its own percentage
-            and token count to compute the minimum decoding length.
+            If None, defaults to 0.8 (80%) for all items. Uses the minimum token count
+            across all items to compute a safe min_decoding_length for batch processing.
             Used to prevent early stopping in NLLB models.
             See: https://huggingface.co/facebook/nllb-200-distilled-600M/discussions/6
 
@@ -252,37 +252,129 @@ class Translator(TranslatorProtocol):
                 f"must match number of texts ({len(texts)})"
             )
 
-        # Use translate_generator for each item to ensure consistent behavior with single translation
-        # This avoids word splitting issues that occur with translate_batch's hypotheses decoding
-        # While this is slightly less efficient than true batch processing, it guarantees correct output
         logger.debug(
             "Starting batch translation",
             batch_size=len(texts),
             text_lengths=[len(t) for t in texts],
             min_length_percentages=min_length_percentages,
         )
+
+        # Encode all texts and calculate token counts
+        encoded_texts = [self.tokeniser.encode(text) for text in texts]
+        token_counts = [len(encoded.tokens) for encoded in encoded_texts]
         
+        # Calculate min_decoding_length based on minimum token count to avoid forcing
+        # short texts to generate too many tokens, while still preventing early stopping
+        min_token_count = min(token_counts) if token_counts else 1
+        # Use the minimum percentage to be conservative
+        min_percentage = min(min_length_percentages)
+        min_decoding_length = max(1, int(min_token_count * min_percentage))
+
+        # Prepare batch inputs with language prefixes
+        # Format: list of lists of strings (tokens)
+        # CTranslate2 expects list[list[str]] where each inner list is [source_lang, token1, token2, ...]
+        # Match the format used in single translation: (source_language, *tokens)
+        batch_inputs = []
+        for source_lang, encoded in zip(source_languages, encoded_texts):
+            # Create a list with source language followed by tokens (same as single translation)
+            batch_input = [source_lang] + encoded.tokens
+            batch_inputs.append(batch_input)
+        
+        # target_prefix should be list of lists (one per input)
+        # Match the format used in single translation: (target_language,)
+        target_prefixes = [[target_lang] for target_lang in target_languages]
+
+        # Use native batch translation for GPU efficiency
+        # suppress_sequences should match target_prefix format: list[list[str]]
+        batch_results = self.translator.translate_batch(
+            batch_inputs,
+            target_prefix=target_prefixes,
+            max_decoding_length=4096,
+            min_decoding_length=min_decoding_length,
+            sampling_temperature=0,
+            no_repeat_ngram_size=3,
+            suppress_sequences=target_prefixes,  # Suppress target language prefix sequences
+        )
+
+        # Decode all results
+        # hypotheses contains token IDs - check if they're strings or integers
         decoded_texts = []
-        for idx, (text, source_lang, target_lang, min_length_percentage) in enumerate(
-            zip(texts, source_languages, target_languages, min_length_percentages)
-        ):
-            # Use the same method as single translation to ensure identical behavior
-            # Each item uses its own min_length_percentage and token count
-            token_ids = list(self.translate_generator(text, source_lang, target_lang, min_length_percentage))
-            decoded_text = self.tokeniser.decode(token_ids, skip_special_tokens=True)
-            decoded_texts.append(decoded_text)
-            
-            logger.debug(
-                "Batch item translation complete",
-                item_index=idx,
-                input_length=len(text),
-                token_count=len(token_ids),
-                output_length=len(decoded_text),
-            )
+        for idx, result in enumerate(batch_results):
+            try:
+                if not hasattr(result, "hypotheses"):
+                    logger.error(
+                        "Result missing hypotheses attribute",
+                        item_index=idx,
+                        result_type=type(result).__name__,
+                        result_attrs=dir(result),
+                    )
+                    raise ValueError(f"Result missing hypotheses attribute for batch item {idx}")
+                
+                if not result.hypotheses or len(result.hypotheses) == 0:
+                    logger.error(
+                        "Empty hypotheses in batch result",
+                        item_index=idx,
+                        result_type=type(result).__name__,
+                        has_hypotheses=hasattr(result, "hypotheses"),
+                    )
+                    raise ValueError(f"Empty hypotheses for batch item {idx}")
+                
+                # Get the first hypothesis (best translation)
+                hypothesis = result.hypotheses[0]
+                
+                if not hypothesis or len(hypothesis) == 0:
+                    logger.error(
+                        "Empty hypothesis in batch result",
+                        item_index=idx,
+                        hypotheses_count=len(result.hypotheses),
+                    )
+                    raise ValueError(f"Empty hypothesis for batch item {idx}")
+                
+                # CTranslate2 translate_batch returns hypotheses as list[list[str]]
+                # The hypothesis includes the target language prefix (e.g., 'spa_Latn') at the start
+                # followed by token strings (not token IDs) - these are already decoded tokens
+                target_lang = target_languages[idx]
+                
+                # Filter out the target language prefix and join the remaining token strings
+                # Token strings from CTranslate2 are already decoded, we just need to join them
+                token_strings = []
+                for token in hypothesis:
+                    # Skip target language prefix
+                    if token == target_lang:
+                        continue
+                    token_strings.append(token)
+                
+                if not token_strings:
+                    logger.error(
+                        "No tokens found in hypothesis after filtering target language prefix",
+                        item_index=idx,
+                        hypothesis=hypothesis,
+                        target_lang=target_lang,
+                    )
+                    raise ValueError(f"No tokens found in hypothesis for batch item {idx}")
+                
+                # Join token strings - CTranslate2 returns token strings, not IDs
+                # The token strings may contain special characters like \u2581 (word boundary)
+                # which need to be handled properly
+                decoded_text = "".join(token_strings).replace("\u2581", " ").strip()
+                decoded_texts.append(decoded_text)
+            except (ValueError, IndexError, TypeError, AttributeError) as e:
+                logger.error(
+                    "Error decoding batch result",
+                    item_index=idx,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                    has_hypotheses=hasattr(result, "hypotheses"),
+                    hypotheses_length=len(result.hypotheses) if hasattr(result, "hypotheses") and result.hypotheses else 0,
+                    result_type=type(result).__name__,
+                    result_attrs=dir(result) if hasattr(result, "__dict__") else "no __dict__",
+                )
+                raise
 
         logger.debug(
             "Batch translation complete",
             total_items=len(decoded_texts),
+            min_decoding_length=min_decoding_length,
             total_output_length=sum(len(t) for t in decoded_texts),
         )
         
