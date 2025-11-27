@@ -157,7 +157,7 @@ class Config(BaseSettings):
         Priority:
         1. TRANSLATOR_REPOSITORY env var (if set)
         2. MODEL_SIZE preset (if MODEL_SIZE env var is set)
-        3. Default to "medium" (1.3B model)
+        3. Default to "large" (3.3B model)
         
         Returns
         -------
@@ -172,5 +172,5 @@ class Config(BaseSettings):
         if self.model_size and self.model_size.lower() in MODEL_SIZE_PRESETS:
             return MODEL_SIZE_PRESETS[self.model_size.lower()]
         
-        # Default fallback to medium (1.3B)
-        return MODEL_SIZE_PRESETS["medium"]
+        # Default fallback to large (3.3B)
+        return MODEL_SIZE_PRESETS["large"]

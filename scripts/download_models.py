@@ -1,30 +1,52 @@
 #!/usr/bin/env python3
-"""Download models to local cache and copy to models/ directory for Docker builds."""
+"""Download models to local cache and copy to models/ directory for Docker builds.
+Only downloads if models don't already exist locally."""
 
 import os
 import shutil
 import sys
+from pathlib import Path
 
 from huggingface_hub import hf_hub_download, snapshot_download
+
+
+def check_model_exists(model_id: str, cache_dir: str) -> bool:
+    """Check if model already exists in cache."""
+    # Check both hub/ format and legacy format
+    model_cache_hub = os.path.join(cache_dir, "hub", f"models--{model_id.replace('/', '--')}")
+    model_cache_legacy = os.path.join(cache_dir, f"models--{model_id.replace('/', '--')}")
+    
+    if os.path.exists(model_cache_hub) or os.path.exists(model_cache_legacy):
+        print(f"✅ Model {model_id} already exists in cache")
+        return True
+    return False
 
 
 def main() -> None:
     """Download models and copy to models/ directory."""
     cache_dir = os.path.expanduser("~/.cache/huggingface")
 
-    print("Downloading models to local cache...")
+    print("Checking for existing models in cache...")
     try:
-        # Download translation model
-        print("Downloading translation model...")
-        translation_path = snapshot_download("OpenNMT/nllb-200-3.3B-ct2-int8", cache_dir=cache_dir)
-        print(f"Translation model downloaded to: {translation_path}")
+        # Check and download translation model
+        translation_model_id = "OpenNMT/nllb-200-3.3B-ct2-int8"
+        if check_model_exists(translation_model_id, cache_dir):
+            print(f"⏭️  Translation model already exists, skipping download")
+        else:
+            print("Downloading translation model...")
+            translation_path = snapshot_download(translation_model_id, cache_dir=cache_dir)
+            print(f"✅ Translation model downloaded to: {translation_path}")
 
-        # Download language detection model
-        print("Downloading language detection model...")
-        lang_path = hf_hub_download("facebook/fasttext-language-identification", "model.bin", cache_dir=cache_dir)
-        print(f"Language detection model downloaded to: {lang_path}")
+        # Check and download language detection model
+        lang_model_id = "facebook/fasttext-language-identification"
+        if check_model_exists(lang_model_id, cache_dir):
+            print(f"⏭️  Language detection model already exists, skipping download")
+        else:
+            print("Downloading language detection model...")
+            lang_path = hf_hub_download(lang_model_id, "model.bin", cache_dir=cache_dir)
+            print(f"✅ Language detection model downloaded to: {lang_path}")
 
-        print(f"Models downloaded successfully to {cache_dir}")
+        print(f"Models ready in cache: {cache_dir}")
 
         # Copy only the specific models we need to models/ directory
         print("Copying to models/ directory...")
