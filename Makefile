@@ -2,9 +2,9 @@
 
 # Docker image configuration
 IMAGE_NAME := pbusenius/nllb-api
-OFFLINE_IMAGE_NAME := pbusenius/offline-nllb-api
+OFFLINE_IMAGE_NAME := pbusenius/nllb-api
 TAG ?= latest
-VERSION ?= 0.1.6
+VERSION ?= 0.2.0
 DOCKERFILE := Dockerfile
 DOCKERFILE_CUDA := Dockerfile.cuda
 
@@ -33,7 +33,7 @@ download-models:
 
 # Build Docker image (CPU)
 docker-build:
-	DOCKER_BUILDKIT=1 docker build --rm -f $(DOCKERFILE) -t $(IMAGE_NAME):$(TAG) .
+	DOCKER_BUILDKIT=1 docker build --rm -f $(DOCKERFILE) -t $(IMAGE_NAME):$(TAG) -t $(IMAGE_NAME):$(VERSION) .
 
 # Build Docker image (CUDA) without models
 docker-build-cuda:
@@ -45,7 +45,7 @@ docker-build-cuda:
 	@mkdir -p models
 	DOCKER_BUILDKIT=1 docker build --rm -f $(DOCKERFILE_CUDA) \
 		--build-arg INCLUDE_MODELS=false \
-		-t $(IMAGE_NAME):$(TAG) .
+		-t $(IMAGE_NAME):$(TAG) -t $(IMAGE_NAME):$(VERSION) .
 	@rm -rf models
 	@if [ -d "models.backup" ]; then \
 		echo "Restoring models directory..."; \
@@ -62,7 +62,7 @@ docker-build-cuda-offline:
 	fi
 	DOCKER_BUILDKIT=1 docker build --rm -f $(DOCKERFILE_CUDA) \
 		--build-arg INCLUDE_MODELS=true \
-		-t $(OFFLINE_IMAGE_NAME):$(TAG) .
+		-t $(OFFLINE_IMAGE_NAME):$(TAG) -t $(OFFLINE_IMAGE_NAME):$(VERSION) .
 
 # Run CUDA Docker container with GPU support
 PORT ?= 49494
@@ -75,19 +75,16 @@ docker-run-cuda:
 
 # Push Docker image to registry
 docker-push: docker-build
-	docker tag $(IMAGE_NAME):$(TAG) $(IMAGE_NAME):$(VERSION)
 	docker push $(IMAGE_NAME):$(TAG)
 	docker push $(IMAGE_NAME):$(VERSION)
 
 # Push CUDA Docker image to registry
 docker-push-cuda: docker-build-cuda
-	docker tag $(IMAGE_NAME):$(TAG) $(IMAGE_NAME):$(VERSION)
 	docker push $(IMAGE_NAME):$(TAG)
 	docker push $(IMAGE_NAME):$(VERSION)
 
 # Push offline CUDA Docker image to registry
 docker-push-cuda-offline: docker-build-cuda-offline
-	docker tag $(OFFLINE_IMAGE_NAME):$(TAG) $(OFFLINE_IMAGE_NAME):$(VERSION)
 	docker push $(OFFLINE_IMAGE_NAME):$(TAG)
 	docker push $(OFFLINE_IMAGE_NAME):$(VERSION)
 
