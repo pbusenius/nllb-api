@@ -3,16 +3,44 @@ ARG PYTHON_VERSION=3.13
 # Stage 1: Extract Swagger UI assets
 FROM swaggerapi/swagger-ui:v5.9.1 AS swagger-ui
 
-# Stage 2: Download models (optional - skip if models don't exist)
+# Stage 2: Copy models from local models/ directory or download (optional)
 FROM python:${PYTHON_VERSION}-slim AS model-builder
+ARG INCLUDE_MODELS=false
 ARG DOWNLOAD_MODELS=false
-RUN if [ "$DOWNLOAD_MODELS" = "true" ]; then \
+
+# Copy models from local models/ directory if available (from make download-models)
+# This allows pre-downloading models locally and including them in the image
+COPY models /tmp/models 2>/dev/null || true
+
+RUN if [ "$INCLUDE_MODELS" = "true" ] && [ -d "/tmp/models" ] && [ "$(ls -A /tmp/models 2>/dev/null)" ]; then \
+        echo "Copying models from local models/ directory..."; \
+        mkdir -p /root/.cache/huggingface && \
+        cp -r /tmp/models/* /root/.cache/huggingface/ && \
+        echo "✅ Models copied from local directory"; \
+        echo "Verifying model structure..."; \
+        ls -la /root/.cache/huggingface/ || true; \
+        find /root/.cache/huggingface -name "*.bin" -o -name "*.safetensors" -o -name "config.json" | head -5 || true; \
+    elif [ "$DOWNLOAD_MODELS" = "true" ]; then \
+        echo "Downloading models during build..."; \
         pip install --no-cache-dir huggingface-hub && \
         python -c "from huggingface_hub import snapshot_download, hf_hub_download; \
         import os, sys; \
+        cache_dir = os.path.expanduser('~/.cache/huggingface'); \
+        os.makedirs(cache_dir, exist_ok=True); \
         try: \
-            snapshot_download('OpenNMT/nllb-200-3.3B-ct2-int8'); \
-            hf_hub_download('facebook/fasttext-language-identification', 'model.bin'); \
+            # Check if models already exist before downloading \
+            translation_model = os.path.join(cache_dir, 'hub', 'models--OpenNMT--nllb-200-3.3B-ct2-int8'); \
+            lang_model = os.path.join(cache_dir, 'hub', 'models--facebook--fasttext-language-identification'); \
+            if not os.path.exists(translation_model): \
+                print('Downloading translation model...'); \
+                snapshot_download('OpenNMT/nllb-200-3.3B-ct2-int8', cache_dir=cache_dir); \
+            else: \
+                print('✅ Translation model already exists'); \
+            if not os.path.exists(lang_model): \
+                print('Downloading language detection model...'); \
+                hf_hub_download('facebook/fasttext-language-identification', 'model.bin', cache_dir=cache_dir); \
+            else: \
+                print('✅ Language detection model already exists'); \
         except Exception as e: \
             print(f'Warning: Model download failed: {e}', file=sys.stderr); \
             sys.exit(0)"; \

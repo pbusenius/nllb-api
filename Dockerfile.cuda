@@ -124,6 +124,9 @@ RUN if [ "$INCLUDE_MODELS" != "true" ] || [ -z "$$(ls -A /home/user/.cache/huggi
         rm -rf /home/user/.cache/huggingface/* /home/user/.cache/huggingface/.[!.]*; \
     else \
         echo "Models included successfully"; \
+        echo "Verifying model structure..."; \
+        ls -la /home/user/.cache/huggingface/ || true; \
+        find /home/user/.cache/huggingface -type d -name "snapshots" | head -3 || true; \
     fi
 
 # Install dependencies with CUDA support (fasttext will be compiled here)
