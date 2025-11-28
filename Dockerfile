@@ -10,7 +10,10 @@ ARG DOWNLOAD_MODELS=false
 
 # Copy models from local models/ directory if available (from make download-models)
 # This allows pre-downloading models locally and including them in the image
-COPY models /tmp/models 2>/dev/null || true
+# Note: COPY requires models/ to exist in build context (even if empty)
+# Create empty directory first, then COPY (COPY will only copy if source exists)
+RUN mkdir -p /tmp/models
+COPY models /tmp/models/
 
 RUN if [ "$INCLUDE_MODELS" = "true" ] && [ -d "/tmp/models" ] && [ "$(ls -A /tmp/models 2>/dev/null)" ]; then \
         echo "Copying models from local models/ directory..."; \
